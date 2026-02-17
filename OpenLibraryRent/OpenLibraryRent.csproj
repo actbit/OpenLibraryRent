@@ -1,0 +1,54 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+	<PropertyGroup>
+		<TargetFramework>net10.0</TargetFramework>
+		<Nullable>enable</Nullable>
+		<ImplicitUsings>enable</ImplicitUsings>
+		<UserSecretsId>974af100-b0a1-49e8-adf1-8bdfdff3b69b</UserSecretsId>
+		<DockerDefaultTargetOS>Linux</DockerDefaultTargetOS>
+	</PropertyGroup>
+
+	<ItemGroup>
+		<PackageReference Include="BouncyCastle.Cryptography" Version="2.6.2" />
+		<PackageReference Include="Finbuckle.MultiTenant" Version="9.4.4" />
+		<PackageReference Include="Finbuckle.MultiTenant.AspNetCore" Version="9.4.4" />
+		<PackageReference Include="Finbuckle.MultiTenant.EntityFrameworkCore" Version="9.4.4" />
+		<PackageReference Include="Microsoft.AspNetCore.Identity.EntityFrameworkCore" Version="10.0.0-*" />
+		<PackageReference Include="Microsoft.AspNetCore.OpenApi" Version="10.0.0-*" />
+		<PackageReference Include="Microsoft.EntityFrameworkCore" Version="10.0.0-*" />
+		<PackageReference Include="Microsoft.EntityFrameworkCore.Design" Version="10.0.0-*">
+			<IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+			<PrivateAssets>all</PrivateAssets>
+		</PackageReference>
+		<PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL" Version="10.0.0-*" />
+		<PackageReference Include="NSwag.AspNetCore" Version="14.6.3" />
+	</ItemGroup>
+
+	<ItemGroup>
+		<ProjectReference Include="..\OpenLibraryRent.ServiceDefaults\OpenLibraryRent.ServiceDefaults.csproj" />
+	</ItemGroup>
+
+	<Target Name="NpmBuild" BeforeTargets="Build" Condition="Exists('./OpenLibraryRent.Client/package.json') AND '$(SkipNpmBuild)' != 'true'">
+		<Message Text="#Start npm install" Importance="high" />
+		<Exec Command="npm install" WorkingDirectory="./OpenLibraryRent.Client" />
+		<Message Text="#Start npm run build" Importance="high" />
+		<RemoveDir Directories="wwwroot" />
+		<Exec Command="npm run build" WorkingDirectory="./OpenLibraryRent.Client" />
+	</Target>
+
+	<ItemGroup>
+		<WwwrootFiles Include="wwwroot\**\*" />
+	</ItemGroup>
+	<ItemGroup>
+		<Content Update="wwwroot\**" CopyToPublishDirectory="Never" />
+		<Content Update="ClientApp\**" CopyToPublishDirectory="Never" />
+	</ItemGroup>
+
+	<Target Name="CopyPublish" AfterTargets="Publish" Condition="Exists('wwwroot')">
+		<Message Text="## Copy Vite build output" Importance="high" />
+		<ItemGroup>
+			<PublishWwwrootFiles Include="wwwroot\**\*" />
+		</ItemGroup>
+		<Copy SourceFiles="@(PublishWwwrootFiles)" DestinationFiles="@(PublishWwwrootFiles->'$(PublishDir)\%(RecursiveDir)%(Filename)%(Extension)')" SkipUnchangedFiles="true" />
+	</Target>
+</Project>
