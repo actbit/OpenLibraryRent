@@ -1,35 +1,55 @@
 using System.Net.Http.Json;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using OpenLibraryRent.Services.Caching;
 
 namespace OpenLibraryRent.Services;
 
 /// <summary>
 /// Open Library API クライアント
-/// ISBNから書籍情報を取得
+/// ISBNから書籍情報を取得（キャッシュ対応）
 /// </summary>
 public class OpenLibraryService
 {
     private readonly HttpClient _httpClient;
     private readonly ILogger<OpenLibraryService> _logger;
+    private readonly ICacheService _cache;
 
     private const string BaseUrl = "https://openlibrary.org";
 
+    /// <summary>
+    /// 書籍情報のキャッシュ有効期限（24時間）
+    /// </summary>
+    private static readonly TimeSpan BookCacheExpiration = TimeSpan.FromHours(24);
+
     public OpenLibraryService(
         HttpClient httpClient,
-        ILogger<OpenLibraryService> logger)
+        ILogger<OpenLibraryService> logger,
+        ICacheService cache)
     {
         _httpClient = httpClient;
         _logger = logger;
+        _cache = cache;
     }
 
     /// <summary>
-    /// ISBNで書籍情報を取得
+    /// ISBNで書籍情報を取得（キャッシュ付き）
     /// </summary>
     public async Task<OpenLibraryBookResponse?> GetBookByIsbnAsync(string isbn, CancellationToken cancellationToken = default)
     {
         // ISBNからハイフンとスペースを削除
         var cleanIsbn = isbn.Replace("-", "").Replace(" ", "");
+
+        // キャッシュから取得を試みる
+        var cacheKey = CacheKeys.BookByIsbn(cleanIsbn);
+        var cached = await _cache.GetAsync<OpenLibraryBookResponse>(cacheKey, cancellationToken);
+        if (cached is not null)
+        {
+            _logger.LogDebug("Book cache hit: {Isbn}", cleanIsbn);
+            return cached;
+        }
+
+        _logger.LogDebug("Book cache miss: {Isbn}", cleanIsbn);
 
         try
         {
@@ -85,7 +105,7 @@ public class OpenLibraryService
                 }
             }
 
-            return new OpenLibraryBookResponse
+            var result = new OpenLibraryBookResponse
             {
                 Isbn = cleanIsbn,
                 Title = bookData.Title,
@@ -96,6 +116,11 @@ public class OpenLibraryService
                 CoverImageUrl = coverUrl,
                 Description = bookData.Description?.Value ?? bookData.Description?.ToString()
             };
+
+            // キャッシュに保存
+            await _cache.SetAsync(cacheKey, result, BookCacheExpiration, cancellationToken);
+
+            return result;
         }
         catch (Exception ex)
         {

@@ -7,8 +7,8 @@ using OpenLibraryRent.Models;
 namespace OpenLibraryRent;
 
 /// <summary>
-/// アプリケーションDbContext（RLS対応）
-/// PostgreSQL Row Level Securityによるテナント分離
+/// アプリケーションDbContext（マルチテナント対応）
+/// Finbuckle.MultiTenantによるテナント分離
 /// </summary>
 public class ApplicationDbContext : MultiTenantIdentityDbContext<ApplicationUser, ApplicationRole, Guid>
 {
@@ -20,14 +20,14 @@ public class ApplicationDbContext : MultiTenantIdentityDbContext<ApplicationUser
         _multiTenantContextAccessor = multiTenantContextAccessor;
     }
 
-    // テナント情報（RLSの外）
+    // テナント情報（テナント分離対象外）
     public DbSet<ApplicationTenantInfo> Tenants => Set<ApplicationTenantInfo>();
     public DbSet<ApplicationTenantDetail> TenantDetails => Set<ApplicationTenantDetail>();
 
-    // ユーザー・ロール（RLS対象）
+    // ユーザー・ロール（テナント分離対象）
     // Note: Users and Roles are inherited from IdentityDbContext
 
-    // 書籍関連（RLS対象）
+    // 書籍関連（テナント分離対象）
     public DbSet<Book> Books => Set<Book>();
     public DbSet<BookCopy> BookCopies => Set<BookCopy>();
     public DbSet<Rental> Rentals => Set<Rental>();
@@ -43,7 +43,7 @@ public class ApplicationDbContext : MultiTenantIdentityDbContext<ApplicationUser
     {
         base.OnModelCreating(modelBuilder);
 
-        // テナント情報（RLS対象外）
+        // テナント情報（テナント分離対象外）
         modelBuilder.Entity<ApplicationTenantInfo>(entity =>
         {
             entity.HasKey(e => e.Id);

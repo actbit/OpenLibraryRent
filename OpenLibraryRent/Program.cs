@@ -15,6 +15,7 @@ using OpenLibraryRent.Middleware;
 using OpenLibraryRent.Models;
 using OpenLibraryRent.Repositories;
 using OpenLibraryRent.Services;
+using OpenLibraryRent.Services.Caching;
 using System.Security.Claims;
 using System.Text.Json.Serialization;
 
@@ -286,8 +287,8 @@ public class Program
         // HttpClient
         builder.Services.AddHttpClient<OpenLibraryService>();
 
-        // MemoryCache
-        builder.Services.AddMemoryCache();
+        // Cache Service（Redisが設定されていればRedis、そうでなければインメモリ）
+        builder.Services.AddCacheService(builder.Configuration);
 
         // Repositories
         builder.Services.AddScoped(typeof(IBaseRepository<>), typeof(BaseRepository<>));
