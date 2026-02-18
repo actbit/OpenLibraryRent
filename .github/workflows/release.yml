@@ -40,11 +40,8 @@ jobs:
       - name: Restore .NET dependencies
         run: dotnet restore
 
-      - name: Build .NET
-        run: dotnet build --configuration Release --no-restore
-
       - name: Publish
-        run: dotnet publish OpenLibraryRent/OpenLibraryRent.csproj --configuration Release --no-build --output ./publish
+        run: dotnet publish OpenLibraryRent/OpenLibraryRent.csproj --configuration Release --output ./publish
 
       - name: Create version tag
         id: version
