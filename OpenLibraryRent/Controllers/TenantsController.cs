@@ -2,6 +2,7 @@ using System.Security.Claims;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using OpenLibraryRent.Dtos;
 using OpenLibraryRent.Filters;
 using OpenLibraryRent.Models;
 using OpenLibraryRent.Permissions;
@@ -39,24 +40,24 @@ public class TenantsController : ControllerBase
     /// </summary>
     [HttpGet("creation-limit")]
     [Authorize]  // Googleログイン必須
-    public async Task<IActionResult> GetCreationLimit()
+    public async Task<ActionResult<TenantLimitCheckDto>> GetCreationLimit()
     {
         var email = User.FindFirst(ClaimTypes.Email)?.Value;
         if (string.IsNullOrEmpty(email))
         {
-            return BadRequest(new { message = "Email claim not found" });
+            return BadRequest(new MessageResponse("Email claim not found"));
         }
 
         var currentCount = await _tenantService.GetTenantCountByEmailAsync(email);
         var maxCount = TenantManagementService.MaxTenantsPerEmail;
 
-        return Ok(new
+        return Ok(new TenantLimitCheckDto
         {
-            email,
-            currentCount,
-            maxCount,
-            remaining = maxCount - currentCount,
-            canCreate = currentCount < maxCount
+            Email = email,
+            CurrentCount = currentCount,
+            MaxCount = maxCount,
+            Remaining = maxCount - currentCount,
+            CanCreate = currentCount < maxCount
         });
     }
 
@@ -70,30 +71,30 @@ public class TenantsController : ControllerBase
         var email = User.FindFirst(ClaimTypes.Email)?.Value;
         if (string.IsNullOrEmpty(email))
         {
-            return BadRequest(new { message = "Email claim not found. Please login with Google." });
+            return BadRequest(new MessageResponse("Email claim not found. Please login with Google."));
         }
 
         if (string.IsNullOrEmpty(request.Identifier))
         {
-            return BadRequest(new { message = "Identifier is required" });
+            return BadRequest(new MessageResponse("Identifier is required"));
         }
 
         // 識別子のバリデーション
         if (!request.Identifier.All(c => char.IsLetterOrDigit(c) || c == '-' || c == '_'))
         {
-            return BadRequest(new { message = "Identifier can only contain letters, numbers, hyphens, and underscores" });
+            return BadRequest(new MessageResponse("Identifier can only contain letters, numbers, hyphens, and underscores"));
         }
 
         if (request.Identifier.Length < 3 || request.Identifier.Length > 50)
         {
-            return BadRequest(new { message = "Identifier must be between 3 and 50 characters" });
+            return BadRequest(new MessageResponse("Identifier must be between 3 and 50 characters"));
         }
 
         // システム予約識別子のチェック
         var reservedIdentifiers = new[] { "system", "admin", "api", "auth", "login", "logout", "www", "app" };
         if (reservedIdentifiers.Contains(request.Identifier.ToLowerInvariant()))
         {
-            return BadRequest(new { message = "This identifier is reserved" });
+            return BadRequest(new MessageResponse("This identifier is reserved"));
         }
 
         try
@@ -105,17 +106,17 @@ public class TenantsController : ControllerBase
 
             _logger.LogInformation("Tenant created publicly: {Identifier} by {Email}", request.Identifier, email);
 
-            return Ok(new
+            return Ok(new TenantCreatePublicResultDto
             {
-                tenant.Id,
-                tenant.Identifier,
-                tenant.Name,
-                message = "Tenant created successfully"
+                Id = tenant.Id,
+                Identifier = tenant.Identifier,
+                Name = tenant.Name,
+                Message = "Tenant created successfully"
             });
         }
         catch (InvalidOperationException ex)
         {
-            return BadRequest(new { message = ex.Message });
+            return BadRequest(new MessageResponse(ex.Message));
         }
     }
 
@@ -124,16 +125,16 @@ public class TenantsController : ControllerBase
     /// </summary>
     [HttpGet]
     [RequireAny("system.tenant.read", "system.tenant.manage")]
-    public async Task<IActionResult> List()
+    public async Task<ActionResult<List<TenantListItemDto>>> List()
     {
         var tenants = await _dbContext.Tenants
             .Include(t => t.Detail)
             .OrderBy(t => t.Identifier)
-            .Select(t => new
+            .Select(t => new TenantListItemDto
             {
-                t.Id,
-                t.Identifier,
-                t.Name,
+                Id = t.Id,
+                Identifier = t.Identifier,
+                Name = t.Name,
                 HasOidc = t.Detail != null && t.Detail.HasOidcSettings(),
                 LoanPeriodDays = t.Detail != null ? t.Detail.LoanPeriodDays : 14,
                 MaxLoansPerUser = t.Detail != null ? t.Detail.MaxLoansPerUser : 5,
@@ -150,7 +151,7 @@ public class TenantsController : ControllerBase
     /// </summary>
     [HttpGet("by-identifier/{identifier}")]
     [AllowAnonymous]
-    public async Task<IActionResult> GetByIdentifier(string identifier)
+    public async Task<ActionResult<TenantByIdentifierDto>> GetByIdentifier(string identifier)
     {
         var tenant = await _dbContext.Tenants
             .Include(t => t.Detail)
@@ -158,17 +159,17 @@ public class TenantsController : ControllerBase
 
         if (tenant == null)
         {
-            return NotFound(new { message = "Tenant not found" });
+            return NotFound(new MessageResponse("Tenant not found"));
         }
 
-        return Ok(new
+        return Ok(new TenantByIdentifierDto
         {
-            id = tenant.Id,
-            identifier = tenant.Identifier,
-            name = tenant.Name,
-            hasOidc = tenant.Detail?.HasOidcSettings() ?? false,
-            loanPeriodDays = tenant.Detail?.LoanPeriodDays ?? 14,
-            maxLoansPerUser = tenant.Detail?.MaxLoansPerUser ?? 5
+            Id = tenant.Id,
+            Identifier = tenant.Identifier,
+            Name = tenant.Name,
+            HasOidc = tenant.Detail?.HasOidcSettings() ?? false,
+            LoanPeriodDays = tenant.Detail?.LoanPeriodDays ?? 14,
+            MaxLoansPerUser = tenant.Detail?.MaxLoansPerUser ?? 5
         });
     }
 
@@ -185,27 +186,27 @@ public class TenantsController : ControllerBase
 
         if (tenant == null)
         {
-            return NotFound(new { message = "Tenant not found" });
+            return NotFound(new MessageResponse("Tenant not found"));
         }
 
-        return Ok(new
+        return Ok(new TenantDetailAdminDto
         {
-            tenant.Id,
-            tenant.Identifier,
-            tenant.Name,
-            Detail = new
+            Id = tenant.Id,
+            Identifier = tenant.Identifier,
+            Name = tenant.Name,
+            Detail = new TenantDetailInfoDto
             {
-                tenant.Detail?.LoanPeriodDays,
-                tenant.Detail?.MaxLoansPerUser,
-                tenant.Detail?.EnableOverdueNotification,
-                tenant.Detail?.RestrictEmailLogin,
-                tenant.Detail?.AllowedEmailDomains,
-                tenant.Detail?.AllowedEmails,
+                LoanPeriodDays = tenant.Detail?.LoanPeriodDays,
+                MaxLoansPerUser = tenant.Detail?.MaxLoansPerUser,
+                EnableOverdueNotification = tenant.Detail?.EnableOverdueNotification,
+                RestrictEmailLogin = tenant.Detail?.RestrictEmailLogin,
+                AllowedEmailDomains = tenant.Detail?.AllowedEmailDomains,
+                AllowedEmails = tenant.Detail?.AllowedEmails,
                 HasOidc = tenant.Detail?.HasOidcSettings() ?? false,
-                tenant.Detail?.OpenIdConnectAuthority,
-                tenant.Detail?.OpenIdConnectClientId,
+                OpenIdConnectAuthority = tenant.Detail?.OpenIdConnectAuthority,
+                OpenIdConnectClientId = tenant.Detail?.OpenIdConnectClientId,
                 HasClientSecret = !string.IsNullOrEmpty(tenant.Detail?.OpenIdConnectClientSecret),
-                tenant.Detail?.RoleClaimName
+                RoleClaimName = tenant.Detail?.RoleClaimName
             }
         });
     }
@@ -219,20 +220,20 @@ public class TenantsController : ControllerBase
     {
         if (string.IsNullOrEmpty(request.Identifier))
         {
-            return BadRequest(new { message = "Identifier is required" });
+            return BadRequest(new MessageResponse("Identifier is required"));
         }
 
         // 識別子のバリデーション
         if (!request.Identifier.All(c => char.IsLetterOrDigit(c) || c == '-' || c == '_'))
         {
-            return BadRequest(new { message = "Identifier can only contain letters, numbers, hyphens, and underscores" });
+            return BadRequest(new MessageResponse("Identifier can only contain letters, numbers, hyphens, and underscores"));
         }
 
         // システム予約識別子のチェック
         if (request.Identifier.Equals("system", StringComparison.OrdinalIgnoreCase) ||
             request.Identifier.Equals("admin", StringComparison.OrdinalIgnoreCase))
         {
-            return BadRequest(new { message = "This identifier is reserved" });
+            return BadRequest(new MessageResponse("This identifier is reserved"));
         }
 
         try
@@ -254,16 +255,16 @@ public class TenantsController : ControllerBase
 
             _logger.LogInformation("Tenant created: {Identifier}", request.Identifier);
 
-            return Ok(new
+            return Ok(new TenantUpdateResultDto
             {
-                tenant.Id,
-                tenant.Identifier,
-                tenant.Name
+                Id = tenant.Id,
+                Identifier = tenant.Identifier,
+                Name = tenant.Name
             });
         }
         catch (InvalidOperationException ex)
         {
-            return BadRequest(new { message = ex.Message });
+            return BadRequest(new MessageResponse(ex.Message));
         }
     }
 
@@ -277,7 +278,7 @@ public class TenantsController : ControllerBase
         var tenant = await _dbContext.Tenants.FirstOrDefaultAsync(t => t.Id == id);
         if (tenant == null)
         {
-            return NotFound(new { message = "Tenant not found" });
+            return NotFound(new MessageResponse("Tenant not found"));
         }
 
         if (!string.IsNullOrEmpty(request.Name))
@@ -289,11 +290,11 @@ public class TenantsController : ControllerBase
 
         _logger.LogInformation("Tenant updated: {Id}", id);
 
-        return Ok(new
+        return Ok(new TenantUpdateResultDto
         {
-            tenant.Id,
-            tenant.Identifier,
-            tenant.Name
+            Id = tenant.Id,
+            Identifier = tenant.Identifier,
+            Name = tenant.Name
         });
     }
 
@@ -310,31 +311,31 @@ public class TenantsController : ControllerBase
 
         if (tenant == null)
         {
-            return NotFound(new { message = "Tenant not found" });
+            return NotFound(new MessageResponse("Tenant not found"));
         }
 
         // システムテナントは削除不可
         if (tenant.Identifier == SystemPermissions.SystemTenantIdentifier)
         {
-            return BadRequest(new { message = "Cannot delete system tenant" });
+            return BadRequest(new MessageResponse("Cannot delete system tenant"));
         }
 
         // 関連データの確認
         var userCount = await _dbContext.Users.CountAsync(u => u.TenantId == tenant.Identifier);
         if (userCount > 0)
         {
-            return BadRequest(new { message = $"Cannot delete tenant with {userCount} users" });
+            return BadRequest(new MessageResponse($"Cannot delete tenant with {userCount} users"));
         }
 
         try
         {
             await _tenantService.DeleteTenantAsync(tenant.Identifier);
-            return Ok(new { message = "Tenant deleted successfully" });
+            return Ok(new MessageResponse("Tenant deleted successfully"));
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Failed to delete tenant: {Id}", id);
-            return BadRequest(new { message = ex.Message });
+            return BadRequest(new MessageResponse(ex.Message));
         }
     }
 
@@ -351,7 +352,7 @@ public class TenantsController : ControllerBase
 
         if (tenant == null)
         {
-            return NotFound(new { message = "Tenant not found" });
+            return NotFound(new MessageResponse("Tenant not found"));
         }
 
         try
@@ -370,12 +371,12 @@ public class TenantsController : ControllerBase
                 clientSecret,
                 request.RoleClaimName);
 
-            return Ok(new { message = "OIDC settings updated successfully" });
+            return Ok(new MessageResponse("OIDC settings updated successfully"));
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Failed to update OIDC settings for tenant: {Id}", id);
-            return BadRequest(new { message = ex.Message });
+            return BadRequest(new MessageResponse(ex.Message));
         }
     }
 
@@ -392,7 +393,7 @@ public class TenantsController : ControllerBase
 
         if (tenant == null)
         {
-            return NotFound(new { message = "Tenant not found" });
+            return NotFound(new MessageResponse("Tenant not found"));
         }
 
         try
@@ -403,12 +404,12 @@ public class TenantsController : ControllerBase
                 request.MaxLoansPerUser,
                 request.EnableOverdueNotification);
 
-            return Ok(new { message = "Loan settings updated successfully" });
+            return Ok(new MessageResponse("Loan settings updated successfully"));
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Failed to update loan settings for tenant: {Id}", id);
-            return BadRequest(new { message = ex.Message });
+            return BadRequest(new MessageResponse(ex.Message));
         }
     }
 
@@ -425,7 +426,7 @@ public class TenantsController : ControllerBase
 
         if (tenant == null)
         {
-            return NotFound(new { message = "Tenant not found" });
+            return NotFound(new MessageResponse("Tenant not found"));
         }
 
         try
@@ -436,12 +437,12 @@ public class TenantsController : ControllerBase
                 request.AllowedEmailDomains,
                 request.AllowedEmails);
 
-            return Ok(new { message = "Email restriction settings updated successfully" });
+            return Ok(new MessageResponse("Email restriction settings updated successfully"));
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Failed to update email restriction settings for tenant: {Id}", id);
-            return BadRequest(new { message = ex.Message });
+            return BadRequest(new MessageResponse(ex.Message));
         }
     }
 
@@ -458,7 +459,7 @@ public class TenantsController : ControllerBase
 
         if (tenant == null)
         {
-            return NotFound(new { message = "Tenant not found" });
+            return NotFound(new MessageResponse("Tenant not found"));
         }
 
         try
@@ -472,12 +473,12 @@ public class TenantsController : ControllerBase
                 request.ApprovalInstructions,
                 request.DefaultApprovedRoles);
 
-            return Ok(new { message = "Registration settings updated successfully" });
+            return Ok(new MessageResponse("Registration settings updated successfully"));
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Failed to update registration settings for tenant: {Id}", id);
-            return BadRequest(new { message = ex.Message });
+            return BadRequest(new MessageResponse(ex.Message));
         }
     }
 }

@@ -2,6 +2,7 @@ using System.Security.Claims;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using OpenLibraryRent.Dtos;
 using OpenLibraryRent.Filters;
 using OpenLibraryRent.Models;
 using OpenLibraryRent.Permissions;
@@ -32,24 +33,24 @@ public class UserApprovalController : BaseController
     /// </summary>
     [HttpGet("settings")]
     [RequireAny("tenant.user.manage")]
-    public async Task<IActionResult> GetSettings()
+    public async Task<ActionResult<ApprovalSettingsDto>> GetSettings()
     {
         var tenantId = User.FindFirst("tenant")?.Value;
         if (string.IsNullOrEmpty(tenantId))
-            return BadRequest(new { message = "Tenant not found" });
+            return BadRequest(new MessageResponse("Tenant not found"));
 
         var detail = await _dbContext.TenantDetails
             .FirstOrDefaultAsync(d => d.TenantId == tenantId);
 
         if (detail == null)
-            return NotFound(new { message = "Tenant settings not found" });
+            return NotFound(new MessageResponse("Tenant settings not found"));
 
-        return Ok(new
+        return Ok(new ApprovalSettingsDto
         {
-            detail.RequireApproval,
-            detail.ApprovalFormFields,
-            detail.ApprovalInstructions,
-            detail.DefaultApprovedRoles
+            RequireApproval = detail.RequireApproval,
+            ApprovalFormFields = detail.ApprovalFormFields,
+            ApprovalInstructions = detail.ApprovalInstructions,
+            DefaultApprovedRoles = detail.DefaultApprovedRoles
         });
     }
 
@@ -58,17 +59,17 @@ public class UserApprovalController : BaseController
     /// </summary>
     [HttpPut("settings")]
     [RequireAny("tenant.user.manage")]
-    public async Task<IActionResult> UpdateSettings([FromBody] UpdateApprovalSettingsRequest request)
+    public async Task<ActionResult<MessageResponse>> UpdateSettings([FromBody] UpdateApprovalSettingsRequest request)
     {
         var tenantId = User.FindFirst("tenant")?.Value;
         if (string.IsNullOrEmpty(tenantId))
-            return BadRequest(new { message = "Tenant not found" });
+            return BadRequest(new MessageResponse("Tenant not found"));
 
         var detail = await _dbContext.TenantDetails
             .FirstOrDefaultAsync(d => d.TenantId == tenantId);
 
         if (detail == null)
-            return NotFound(new { message = "Tenant settings not found" });
+            return NotFound(new MessageResponse("Tenant settings not found"));
 
         detail.RequireApproval = request.RequireApproval;
         detail.ApprovalFormFields = request.ApprovalFormFields;
@@ -79,7 +80,7 @@ public class UserApprovalController : BaseController
 
         _logger.LogInformation("Approval settings updated for tenant: {TenantId}", tenantId);
 
-        return Ok(new { message = "Settings updated successfully" });
+        return Ok(new MessageResponse("Settings updated successfully"));
     }
 
     /// <summary>
@@ -87,11 +88,11 @@ public class UserApprovalController : BaseController
     /// </summary>
     [HttpGet("requests")]
     [RequireAny("tenant.user.read", "tenant.user.manage")]
-    public async Task<IActionResult> ListRequests([FromQuery] ApprovalStatus? status = null)
+    public async Task<ActionResult<List<ApprovalRequestListItemDto>>> ListRequests([FromQuery] ApprovalStatus? status = null)
     {
         var tenantId = User.FindFirst("tenant")?.Value;
         if (string.IsNullOrEmpty(tenantId))
-            return BadRequest(new { message = "Tenant not found" });
+            return BadRequest(new MessageResponse("Tenant not found"));
 
         var query = _dbContext.UserApprovalRequests
             .Where(r => r.TenantId == tenantId);
@@ -103,15 +104,15 @@ public class UserApprovalController : BaseController
 
         var requests = await query
             .OrderByDescending(r => r.RequestedAt)
-            .Select(r => new
+            .Select(r => new ApprovalRequestListItemDto
             {
-                r.Id,
-                r.Email,
-                r.DisplayName,
-                r.Status,
-                r.RequestedAt,
-                r.ProcessedAt,
-                r.RejectionReason
+                Id = r.Id,
+                Email = r.Email,
+                DisplayName = r.DisplayName,
+                Status = r.Status.ToString(),
+                RequestedAt = r.RequestedAt,
+                ProcessedAt = r.ProcessedAt,
+                RejectionReason = r.RejectionReason
             })
             .ToListAsync();
 
@@ -123,32 +124,32 @@ public class UserApprovalController : BaseController
     /// </summary>
     [HttpGet("requests/{id}")]
     [RequireAny("tenant.user.read", "tenant.user.manage")]
-    public async Task<IActionResult> GetRequest(Guid id)
+    public async Task<ActionResult<ApprovalRequestDetailDto>> GetRequest(Guid id)
     {
         var tenantId = User.FindFirst("tenant")?.Value;
         if (string.IsNullOrEmpty(tenantId))
-            return BadRequest(new { message = "Tenant not found" });
+            return BadRequest(new MessageResponse("Tenant not found"));
 
         var request = await _dbContext.UserApprovalRequests
             .FirstOrDefaultAsync(r => r.Id == id && r.TenantId == tenantId);
 
         if (request == null)
-            return NotFound(new { message = "Request not found" });
+            return NotFound(new MessageResponse("Request not found"));
 
-        return Ok(new
+        return Ok(new ApprovalRequestDetailDto
         {
-            request.Id,
-            request.Email,
-            request.Sub,
-            request.DisplayName,
-            request.ApplicationData,
-            request.Status,
-            request.RequestedAt,
-            request.ProcessedAt,
-            request.ProcessedBy,
-            request.RejectionReason,
-            request.AssignedRoles,
-            request.UserMetadata
+            Id = request.Id,
+            Email = request.Email,
+            Sub = request.Sub,
+            DisplayName = request.DisplayName,
+            ApplicationData = request.ApplicationData,
+            Status = request.Status.ToString(),
+            RequestedAt = request.RequestedAt,
+            ProcessedAt = request.ProcessedAt,
+            ProcessedBy = request.ProcessedBy,
+            RejectionReason = request.RejectionReason,
+            AssignedRoles = request.AssignedRoles,
+            UserMetadata = request.UserMetadata
         });
     }
 
@@ -157,22 +158,22 @@ public class UserApprovalController : BaseController
     /// </summary>
     [HttpPost("requests/{id}/approve")]
     [RequireAny("tenant.user.manage")]
-    public async Task<IActionResult> Approve(Guid id, [FromBody] ApproveUserRequest? request = null)
+    public async Task<ActionResult<ApprovalResultDto>> Approve(Guid id, [FromBody] ApproveUserRequest? request = null)
     {
         var tenantId = User.FindFirst("tenant")?.Value;
         var userId = GetCurrentUserId();
 
         if (string.IsNullOrEmpty(tenantId) || userId == null)
-            return BadRequest(new { message = "Invalid context" });
+            return BadRequest(new MessageResponse("Invalid context"));
 
         var approvalRequest = await _dbContext.UserApprovalRequests
             .FirstOrDefaultAsync(r => r.Id == id && r.TenantId == tenantId);
 
         if (approvalRequest == null)
-            return NotFound(new { message = "Request not found" });
+            return NotFound(new MessageResponse("Request not found"));
 
         if (approvalRequest.Status != ApprovalStatus.Pending)
-            return BadRequest(new { message = "Request already processed" });
+            return BadRequest(new MessageResponse("Request already processed"));
 
         // ユーザーを作成
         var user = new ApplicationUser
@@ -232,10 +233,10 @@ public class UserApprovalController : BaseController
 
         _logger.LogInformation("User approved: {Email} in tenant {TenantId}", approvalRequest.Email, tenantId);
 
-        return Ok(new
+        return Ok(new ApprovalResultDto
         {
-            message = "User approved successfully",
-            userId = user.Id
+            Message = "User approved successfully",
+            UserId = user.Id
         });
     }
 
@@ -244,22 +245,22 @@ public class UserApprovalController : BaseController
     /// </summary>
     [HttpPost("requests/{id}/reject")]
     [RequireAny("tenant.user.manage")]
-    public async Task<IActionResult> Reject(Guid id, [FromBody] RejectUserRequest request)
+    public async Task<ActionResult<MessageResponse>> Reject(Guid id, [FromBody] RejectUserRequest request)
     {
         var tenantId = User.FindFirst("tenant")?.Value;
         var userId = GetCurrentUserId();
 
         if (string.IsNullOrEmpty(tenantId) || userId == null)
-            return BadRequest(new { message = "Invalid context" });
+            return BadRequest(new MessageResponse("Invalid context"));
 
         var approvalRequest = await _dbContext.UserApprovalRequests
             .FirstOrDefaultAsync(r => r.Id == id && r.TenantId == tenantId);
 
         if (approvalRequest == null)
-            return NotFound(new { message = "Request not found" });
+            return NotFound(new MessageResponse("Request not found"));
 
         if (approvalRequest.Status != ApprovalStatus.Pending)
-            return BadRequest(new { message = "Request already processed" });
+            return BadRequest(new MessageResponse("Request already processed"));
 
         approvalRequest.Status = ApprovalStatus.Rejected;
         approvalRequest.ProcessedAt = DateTime.UtcNow;
@@ -270,7 +271,7 @@ public class UserApprovalController : BaseController
 
         _logger.LogInformation("User rejected: {Email} in tenant {TenantId}", approvalRequest.Email, tenantId);
 
-        return Ok(new { message = "Request rejected" });
+        return Ok(new MessageResponse("Request rejected"));
     }
 
     /// <summary>
@@ -278,18 +279,18 @@ public class UserApprovalController : BaseController
     /// </summary>
     [HttpPost("apply")]
     [AllowAnonymous]
-    public async Task<IActionResult> Apply([FromBody] ApplyForApprovalRequest request)
+    public async Task<ActionResult<ApplicationResultDto>> Apply([FromBody] ApplyForApprovalRequest request)
     {
         var tenantId = HttpContext.GetRouteValue("tenant")?.ToString();
         if (string.IsNullOrEmpty(tenantId))
-            return BadRequest(new { message = "Tenant not found" });
+            return BadRequest(new MessageResponse("Tenant not found"));
 
         // テナントの設定を確認
         var detail = await _dbContext.TenantDetails
             .FirstOrDefaultAsync(d => d.TenantId == tenantId);
 
         if (detail == null || detail.RegistrationMode != UserRegistrationMode.Approval)
-            return BadRequest(new { message = "Approval not required for this tenant" });
+            return BadRequest(new MessageResponse("Approval not required for this tenant"));
 
         // 既存の申請を確認
         var existingRequest = await _dbContext.UserApprovalRequests
@@ -298,9 +299,9 @@ public class UserApprovalController : BaseController
         if (existingRequest != null)
         {
             if (existingRequest.Status == ApprovalStatus.Pending)
-                return BadRequest(new { message = "Application already pending" });
+                return BadRequest(new MessageResponse("Application already pending"));
             if (existingRequest.Status == ApprovalStatus.Approved)
-                return BadRequest(new { message = "Already approved" });
+                return BadRequest(new MessageResponse("Already approved"));
         }
 
         // 新しい申請を作成
@@ -319,10 +320,10 @@ public class UserApprovalController : BaseController
 
         _logger.LogInformation("New approval request: {Email} for tenant {TenantId}", request.Email, tenantId);
 
-        return Ok(new
+        return Ok(new ApplicationResultDto
         {
-            message = "Application submitted successfully",
-            requestId = approvalRequest.Id
+            Message = "Application submitted successfully",
+            RequestId = approvalRequest.Id
         });
     }
 
@@ -331,11 +332,11 @@ public class UserApprovalController : BaseController
     /// </summary>
     [HttpGet("status")]
     [AllowAnonymous]
-    public async Task<IActionResult> GetStatus([FromQuery] string email)
+    public async Task<ActionResult<ApplicationStatusDto>> GetStatus([FromQuery] string email)
     {
         var tenantId = HttpContext.GetRouteValue("tenant")?.ToString();
         if (string.IsNullOrEmpty(tenantId))
-            return BadRequest(new { message = "Tenant not found" });
+            return BadRequest(new MessageResponse("Tenant not found"));
 
         var request = await _dbContext.UserApprovalRequests
             .Where(r => r.TenantId == tenantId && r.Email == email)
@@ -343,14 +344,14 @@ public class UserApprovalController : BaseController
             .FirstOrDefaultAsync();
 
         if (request == null)
-            return Ok(new { status = "not_applied" });
+            return Ok(new ApplicationStatusDto { Status = "not_applied", RequestedAt = default });
 
-        return Ok(new
+        return Ok(new ApplicationStatusDto
         {
-            status = request.Status.ToString().ToLowerInvariant(),
-            request.RequestedAt,
-            request.ProcessedAt,
-            request.RejectionReason
+            Status = request.Status.ToString().ToLowerInvariant(),
+            RequestedAt = request.RequestedAt,
+            ProcessedAt = request.ProcessedAt,
+            RejectionReason = request.RejectionReason
         });
     }
 

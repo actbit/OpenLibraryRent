@@ -4,6 +4,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using System.Security.Claims;
 using OpenLibraryRent.Constants;
+using OpenLibraryRent.Dtos;
 using OpenLibraryRent.Extensions;
 
 namespace OpenLibraryRent.Controllers;
@@ -52,7 +53,7 @@ public class AuthController : BaseController
     /// </summary>
     [HttpGet("me")]
     [Authorize]
-    public IActionResult Me()
+    public ActionResult<UserInfoDto> Me()
     {
         var userId = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
         var email = User.FindFirst(ClaimTypes.Email)?.Value;
@@ -60,14 +61,14 @@ public class AuthController : BaseController
         var tenant = User.FindFirst(AuthenticationConstants.TenantClaimType)?.Value;
         var roles = User.FindAll(ClaimTypes.Role).Select(c => c.Value).ToList();
 
-        return Ok(new
+        return Ok(new UserInfoDto
         {
-            userId,
-            email,
-            name,
-            tenant,
-            roles,
-            isAuthenticated = User.Identity?.IsAuthenticated ?? false
+            UserId = userId,
+            Email = email,
+            Name = name,
+            Tenant = tenant,
+            Roles = roles,
+            IsAuthenticated = User.Identity?.IsAuthenticated ?? false
         });
     }
 
@@ -76,11 +77,11 @@ public class AuthController : BaseController
     /// </summary>
     [HttpGet("check")]
     [AllowAnonymous]
-    public IActionResult Check()
+    public ActionResult<AuthStatusDto> Check()
     {
-        return Ok(new
+        return Ok(new AuthStatusDto
         {
-            isAuthenticated = User.Identity?.IsAuthenticated ?? false
+            IsAuthenticated = User.Identity?.IsAuthenticated ?? false
         });
     }
 
@@ -89,7 +90,7 @@ public class AuthController : BaseController
     /// </summary>
     [HttpPost("logout")]
     [Authorize]
-    public async Task<IActionResult> Logout()
+    public async Task<ActionResult<MessageResponse>> Logout()
     {
         var tenant = HttpContext.GetRouteValue("tenant")?.ToString();
 
@@ -97,6 +98,6 @@ public class AuthController : BaseController
 
         _logger.LogInformation("User logged out from tenant: {Tenant}", tenant);
 
-        return Ok(new { message = "Logged out successfully" });
+        return Ok(new MessageResponse("Logged out successfully"));
     }
 }

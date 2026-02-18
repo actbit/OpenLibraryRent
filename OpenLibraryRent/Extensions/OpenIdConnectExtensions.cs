@@ -4,6 +4,7 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Protocols.OpenIdConnect;
 using System.Security.Claims;
+using OpenLibraryRent.Dtos;
 using OpenLibraryRent.Models;
 using OpenLibraryRent.Services;
 using OpenLibraryRent.Constants;
@@ -157,7 +158,7 @@ public static class OpenIdConnectExtensions
             logger.LogError("[OnRedirectToIdentityProvider] OIDC configuration not found for tenant: {TenantId}", tenantId);
             ctx.HandleResponse();
             ctx.Response.StatusCode = StatusCodes.Status500InternalServerError;
-            await ctx.Response.WriteAsJsonAsync(new { error = "OIDC configuration is not properly configured for this tenant." });
+            await ctx.Response.WriteAsJsonAsync(new MessageResponse("OIDC configuration is not properly configured for this tenant."));
             return;
         }
     }
