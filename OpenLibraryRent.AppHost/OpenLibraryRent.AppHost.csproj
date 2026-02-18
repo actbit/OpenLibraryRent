@@ -8,4 +8,12 @@
     <UserSecretsId>4f7acffe-1e9e-4308-ae56-8e9421a8531d</UserSecretsId>
   </PropertyGroup>
 
+  <ItemGroup>
+    <PackageReference Include="Aspire.Hosting.PostgreSQL" Version="9.4.2" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\OpenLibraryRent\OpenLibraryRent.csproj" />
+  </ItemGroup>
+
 </Project>
