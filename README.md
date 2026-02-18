@@ -4,7 +4,7 @@
 
 **マルチテナント対応 図書貸出管理システム**
 
-PostgreSQL Row Level Security による安全なテナント分離を実現
+Finbuckle.MultiTenantによるテナント分離を実現
 
 [![.NET](https://img.shields.io/badge/.NET-10.0-512BD4?logo=dotnet)](https://dotnet.microsoft.com/)
 [![SvelteKit](https://img.shields.io/badge/SvelteKit-2.x-FF3E00?logo=svelte)](https://kit.svelte.dev/)
@@ -19,7 +19,7 @@ PostgreSQL Row Level Security による安全なテナント分離を実現
 
 ## ✨ 特徴
 
-- 🔐 **マルチテナント分離** - PostgreSQL RLSによるデータベースレベルの分離
+- 🔐 **マルチテナント分離** - Finbuckle.MultiTenantによるアプリケーションレベルの分離
 - 🎫 **柔軟なユーザー登録** - オープン/ホワイトリスト/承認制の3モード
 - 📖 **Open Library連携** - ISBNから自動で書籍情報を取得
 - 📱 **ISBNスキャン** - カメラを使ったバーコードスキャン
