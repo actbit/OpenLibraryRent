@@ -36,12 +36,7 @@
 		<RemoveDir Directories="wwwroot" />
 		<Exec Command="npm run build" WorkingDirectory="./OpenLibraryRent.Client" />
 	</Target>
-
 	<ItemGroup>
-		<WwwrootFiles Include="wwwroot\**\*" />
-	</ItemGroup>
-	<ItemGroup>
-		<Content Update="wwwroot\**" CopyToPublishDirectory="Never" />
 		<Content Update="ClientApp\**" CopyToPublishDirectory="Never" />
 	</ItemGroup>
 

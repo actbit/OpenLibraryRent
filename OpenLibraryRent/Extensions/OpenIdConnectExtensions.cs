@@ -263,11 +263,72 @@ public static class OpenIdConnectExtensions
             }
             else
             {
+                // ユーザーが存在しない場合
                 if (!tenant.Detail.HasOidcSettings())
                 {
                     logger.LogError("[OnTokenValidated] User {Sub} does not exist and OIDC is not configured", subClaim);
                     ctx.Fail("User account not found.");
                     return;
+                }
+
+                var registrationMode = tenant.Detail.RegistrationMode;
+                var userEmail = ctx.Principal?.FindFirst(ClaimTypes.Email)?.Value
+                    ?? ctx.Principal?.FindFirst("email")?.Value;
+
+                // プライベートモード（ホワイトリスト）のチェック
+                if (registrationMode == UserRegistrationMode.Private)
+                {
+                    if (!tenant.Detail.IsEmailAllowed(userEmail))
+                    {
+                        logger.LogWarning("[OnTokenValidated] User {Email} not in whitelist for tenant {TenantId}", userEmail, tenantId);
+                        ctx.Fail("Access denied. Your email address is not allowed.");
+                        return;
+                    }
+                }
+
+                // 承認制モードのチェック
+                if (registrationMode == UserRegistrationMode.Approval)
+                {
+                    // ホワイトリストに載っている人は承認スキップ
+                    if (tenant.Detail.IsEmailAllowed(userEmail))
+                    {
+                        logger.LogInformation("[OnTokenValidated] User {Email} is in whitelist, skipping approval", userEmail);
+                    }
+                    else if (!string.IsNullOrEmpty(userEmail))
+                    {
+                        var approvalRequest = await dbContext.UserApprovalRequests
+                            .Where(r => r.TenantId == tenantId && r.Email == userEmail)
+                            .OrderByDescending(r => r.RequestedAt)
+                            .FirstOrDefaultAsync();
+
+                        if (approvalRequest == null)
+                        {
+                            // 申請が必要
+                            logger.LogWarning("[OnTokenValidated] User {Email} needs to apply for approval", userEmail);
+                            ctx.Fail("approval_required");
+                            return;
+                        }
+
+                        if (approvalRequest.Status == ApprovalStatus.Pending)
+                        {
+                            logger.LogWarning("[OnTokenValidated] User {Email} approval is pending", userEmail);
+                            ctx.Fail("approval_pending");
+                            return;
+                        }
+
+                        if (approvalRequest.Status == ApprovalStatus.Rejected)
+                        {
+                            logger.LogWarning("[OnTokenValidated] User {Email} was rejected: {Reason}", userEmail, approvalRequest.RejectionReason);
+                            ctx.Fail($"approval_rejected:{approvalRequest.RejectionReason}");
+                            return;
+                        }
+                    }
+                    else
+                    {
+                        logger.LogWarning("[OnTokenValidated] Email claim not found for approval check");
+                        ctx.Fail("Email is required for approval.");
+                        return;
+                    }
                 }
             }
         }
