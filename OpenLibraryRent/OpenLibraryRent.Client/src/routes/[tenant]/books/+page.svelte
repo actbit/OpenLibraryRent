@@ -23,7 +23,7 @@
 			params.set('page', page_num.toString());
 			params.set('pageSize', '20');
 
-			const result = await api.get(`/books?${params}`);
+			const result = await api.get<{ books: any[]; total: number }>(`/books?${params}`);
 			books = result.books;
 			total = result.total;
 		} catch (e: any) {

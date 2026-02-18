@@ -444,6 +444,42 @@ public class TenantsController : ControllerBase
             return BadRequest(new { message = ex.Message });
         }
     }
+
+    /// <summary>
+    /// ユーザー登録設定を更新（システム管理者のみ）
+    /// </summary>
+    [HttpPut("{id}/registration-settings")]
+    [RequireAny("system.tenant.manage")]
+    public async Task<IActionResult> UpdateRegistrationSettings(string id, [FromBody] UpdateRegistrationSettingsRequest request)
+    {
+        var tenant = await _dbContext.Tenants
+            .Include(t => t.Detail)
+            .FirstOrDefaultAsync(t => t.Id == id);
+
+        if (tenant == null)
+        {
+            return NotFound(new { message = "Tenant not found" });
+        }
+
+        try
+        {
+            await _tenantService.UpdateRegistrationSettingsAsync(
+                tenant.Identifier,
+                request.RegistrationMode,
+                request.AllowedEmailDomains,
+                request.AllowedEmails,
+                request.ApprovalFormFields,
+                request.ApprovalInstructions,
+                request.DefaultApprovedRoles);
+
+            return Ok(new { message = "Registration settings updated successfully" });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to update registration settings for tenant: {Id}", id);
+            return BadRequest(new { message = ex.Message });
+        }
+    }
 }
 
 public class CreateTenantRequest
@@ -487,4 +523,14 @@ public class CreateTenantPublicRequest
 {
     public string Identifier { get; set; } = null!;
     public string? Name { get; set; }
+}
+
+public class UpdateRegistrationSettingsRequest
+{
+    public int RegistrationMode { get; set; }
+    public string? AllowedEmailDomains { get; set; }
+    public string? AllowedEmails { get; set; }
+    public string? ApprovalFormFields { get; set; }
+    public string? ApprovalInstructions { get; set; }
+    public string? DefaultApprovedRoles { get; set; }
 }

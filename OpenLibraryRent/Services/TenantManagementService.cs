@@ -318,4 +318,40 @@ public class TenantManagementService
 
         _logger.LogInformation("Updated email restriction settings for tenant: {Identifier}", identifier);
     }
+
+    /// <summary>
+    /// テナントのユーザー登録設定を更新
+    /// </summary>
+    public async Task UpdateRegistrationSettingsAsync(
+        string identifier,
+        int registrationMode,
+        string? allowedEmailDomains,
+        string? allowedEmails,
+        string? approvalFormFields,
+        string? approvalInstructions,
+        string? defaultApprovedRoles,
+        CancellationToken cancellationToken = default)
+    {
+        var tenant = await _dbContext.Tenants
+            .Include(t => t.Detail)
+            .FirstOrDefaultAsync(t => t.Identifier == identifier, cancellationToken);
+
+        if (tenant == null)
+        {
+            throw new InvalidOperationException($"Tenant with identifier '{identifier}' not found");
+        }
+
+        tenant.Detail ??= new ApplicationTenantDetail { TenantId = tenant.Id! };
+
+        tenant.Detail.RegistrationMode = (UserRegistrationMode)registrationMode;
+        tenant.Detail.AllowedEmailDomains = allowedEmailDomains;
+        tenant.Detail.AllowedEmails = allowedEmails;
+        tenant.Detail.ApprovalFormFields = approvalFormFields;
+        tenant.Detail.ApprovalInstructions = approvalInstructions;
+        tenant.Detail.DefaultApprovedRoles = defaultApprovedRoles;
+
+        await _dbContext.SaveChangesAsync(cancellationToken);
+
+        _logger.LogInformation("Updated registration settings for tenant: {Identifier}, Mode: {Mode}", identifier, (UserRegistrationMode)registrationMode);
+    }
 }

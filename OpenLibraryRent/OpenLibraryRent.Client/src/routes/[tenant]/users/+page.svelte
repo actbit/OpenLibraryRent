@@ -33,7 +33,7 @@
 			params.set('page', page_num.toString());
 			params.set('pageSize', '20');
 
-			const result = await api.get(`/users?${params}`);
+			const result = await api.get<{ users: any[]; total: number }>(`/users?${params}`);
 			users = result.users;
 			total = result.total;
 		} catch (e: any) {
@@ -45,7 +45,7 @@
 
 	async function loadRoles() {
 		try {
-			const result = await api.get('/users/roles');
+			const result = await api.get<any[]>('/users/roles');
 			roles = result;
 		} catch (e) {
 			console.error('Failed to load roles', e);
