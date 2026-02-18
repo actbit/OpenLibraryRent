@@ -6,8 +6,15 @@ var postgres = builder.AddPostgres("postgres")
 
 var database = postgres.AddDatabase("openlibraryrent-db");
 
-builder.AddProject<Projects.OpenLibraryRent>("openlibraryrent")
+// Redis（オプション - コメントアウトを外すと有効化）
+// var redis = builder.AddRedis("redis")
+//     .WithDataVolume("openlibraryrent-redis-data");
+
+var app = builder.AddProject<Projects.OpenLibraryRent>("openlibraryrent")
     .WithReference(database)
     .WaitFor(database);
+
+// Redis有効化時に参照を追加
+// app.WithReference(redis);
 
 builder.Build().Run();
