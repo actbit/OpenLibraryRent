@@ -57,6 +57,11 @@ public class ApplicationRole : IdentityRole<Guid>
         Id = Guid.CreateVersion7();
     }
 
+    public ApplicationRole(string roleName) : this()
+    {
+        Name = roleName;
+    }
+
     /// <summary>
     /// テナントID（RLS用）
     /// </summary>
@@ -67,4 +72,9 @@ public class ApplicationRole : IdentityRole<Guid>
     /// </summary>
     [StringLength(500)]
     public string? Description { get; set; }
+
+    /// <summary>
+    /// ロールに割り当てられた権限
+    /// </summary>
+    public List<RolePermission> Permissions { get; set; } = new();
 }

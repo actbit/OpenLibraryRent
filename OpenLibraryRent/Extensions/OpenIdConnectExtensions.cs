@@ -222,7 +222,14 @@ public static class OpenIdConnectExtensions
         }
 
         var userSync = ctx.HttpContext.RequestServices.GetRequiredService<UserSyncService>();
-        await userSync.SyncUserAsync(ctx.Principal);
+        var syncResult = await userSync.SyncUserAsync(ctx.Principal);
+
+        if (!syncResult)
+        {
+            logger.LogWarning("[OnTokenValidated] User sync failed (email restriction?) for tenant: {TenantId}", tenantId);
+            ctx.Fail("Access denied. Your email address is not allowed.");
+            return;
+        }
 
         var identity = (ClaimsIdentity)ctx.Principal!.Identity!;
 

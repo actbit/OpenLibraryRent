@@ -23,10 +23,11 @@ public class UserSyncService
     /// <summary>
     /// OIDCプロバイダーからのユーザー情報を同期
     /// </summary>
-    public async Task SyncUserAsync(ClaimsPrincipal? principal)
+    /// <returns>同期が成功したかどうか。メール制限で拒否された場合はfalse。</returns>
+    public async Task<bool> SyncUserAsync(ClaimsPrincipal? principal)
     {
         if (principal == null)
-            return;
+            return false;
 
         var subClaim = principal.FindFirst("sub")?.Value
             ?? principal.FindFirst(ClaimTypes.NameIdentifier)?.Value;
@@ -34,21 +35,32 @@ public class UserSyncService
         if (string.IsNullOrEmpty(subClaim))
         {
             _logger.LogWarning("No sub claim found in principal");
-            return;
+            return false;
         }
 
         var tenantId = principal.FindFirst("tenant")?.Value;
         if (string.IsNullOrEmpty(tenantId))
         {
             _logger.LogWarning("No tenant claim found in principal");
-            return;
+            return false;
+        }
+
+        var email = principal.FindFirst(ClaimTypes.Email)?.Value
+            ?? principal.FindFirst("email")?.Value;
+
+        // テナント設定を取得してメール制限をチェック
+        var tenant = await _dbContext.Tenants
+            .Include(t => t.Detail)
+            .FirstOrDefaultAsync(t => t.Identifier == tenantId);
+
+        if (tenant?.Detail != null && !tenant.Detail.IsEmailAllowed(email))
+        {
+            _logger.LogWarning("Email {Email} is not allowed for tenant {TenantId}", email, tenantId);
+            return false;
         }
 
         var user = await _dbContext.Users
             .FirstOrDefaultAsync(u => u.Sub == subClaim && u.TenantId == tenantId);
-
-        var email = principal.FindFirst(ClaimTypes.Email)?.Value
-            ?? principal.FindFirst("email")?.Value;
 
         var name = principal.FindFirst(ClaimTypes.Name)?.Value
             ?? principal.FindFirst("name")?.Value
@@ -88,5 +100,6 @@ public class UserSyncService
         }
 
         await _dbContext.SaveChangesAsync();
+        return true;
     }
 }

@@ -3,7 +3,9 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using OpenLibraryRent.Filters;
 using OpenLibraryRent.Models;
+using OpenLibraryRent.Permissions;
 
 namespace OpenLibraryRent.Controllers;
 
@@ -337,18 +339,22 @@ public class UsersController : BaseController
     }
 
     /// <summary>
-    /// ロール一覧を取得
+    /// ロール一覧を取得（権限付き）
     /// </summary>
     [HttpGet("roles")]
-    [Authorize(Roles = "Admin")]
+    [RequireAny("tenant.role.read", "tenant.role.manage")]
     public async Task<IActionResult> ListRoles()
     {
+        var tenantId = User.FindFirst("tenant")?.Value;
+
         var roles = await _dbContext.Roles
+            .Where(r => r.TenantId == tenantId)
             .Select(r => new
             {
                 r.Id,
                 r.Name,
                 r.Description,
+                Permissions = r.Permissions.Select(p => p.Name).ToList(),
                 UserCount = _dbContext.UserRoles.Count(ur => ur.RoleId == r.Id)
             })
             .ToListAsync();
@@ -360,7 +366,7 @@ public class UsersController : BaseController
     /// ロールを作成
     /// </summary>
     [HttpPost("roles")]
-    [Authorize(Roles = "Admin")]
+    [RequireAny("tenant.role.manage")]
     public async Task<IActionResult> CreateRole([FromBody] CreateRoleRequest request)
     {
         if (string.IsNullOrEmpty(request.Name))
@@ -368,7 +374,11 @@ public class UsersController : BaseController
             return BadRequest(new { message = "Role name is required" });
         }
 
-        var exists = await _roleManager.RoleExistsAsync(request.Name);
+        var tenantId = User.FindFirst("tenant")?.Value;
+
+        // 同じテナント内での重複チェック
+        var exists = await _dbContext.Roles
+            .AnyAsync(r => r.TenantId == tenantId && r.Name == request.Name);
         if (exists)
         {
             return BadRequest(new { message = "Role already exists" });
@@ -377,7 +387,8 @@ public class UsersController : BaseController
         var role = new ApplicationRole
         {
             Name = request.Name,
-            Description = request.Description
+            Description = request.Description,
+            TenantId = tenantId!
         };
 
         var result = await _roleManager.CreateAsync(role);
@@ -387,7 +398,7 @@ public class UsersController : BaseController
             return BadRequest(new { message = string.Join(", ", result.Errors.Select(e => e.Description)) });
         }
 
-        _logger.LogInformation("Role created: {RoleName}", request.Name);
+        _logger.LogInformation("Role created: {RoleName} in tenant: {TenantId}", request.Name, tenantId);
 
         return Ok(new { role.Id, role.Name, role.Description });
     }
@@ -396,10 +407,13 @@ public class UsersController : BaseController
     /// ロールを更新
     /// </summary>
     [HttpPut("roles/{id}")]
-    [Authorize(Roles = "Admin")]
+    [RequireAny("tenant.role.manage")]
     public async Task<IActionResult> UpdateRole(Guid id, [FromBody] UpdateRoleRequest request)
     {
-        var role = await _dbContext.Roles.FindAsync(id);
+        var tenantId = User.FindFirst("tenant")?.Value;
+
+        var role = await _dbContext.Roles
+            .FirstOrDefaultAsync(r => r.Id == id && r.TenantId == tenantId);
         if (role == null)
         {
             return NotFound(new { message = "Role not found" });
@@ -421,10 +435,13 @@ public class UsersController : BaseController
     /// ロールを削除
     /// </summary>
     [HttpDelete("roles/{id}")]
-    [Authorize(Roles = "Admin")]
+    [RequireAny("tenant.role.manage")]
     public async Task<IActionResult> DeleteRole(Guid id)
     {
-        var role = await _dbContext.Roles.FindAsync(id);
+        var tenantId = User.FindFirst("tenant")?.Value;
+
+        var role = await _dbContext.Roles
+            .FirstOrDefaultAsync(r => r.Id == id && r.TenantId == tenantId);
         if (role == null)
         {
             return NotFound(new { message = "Role not found" });
@@ -447,6 +464,104 @@ public class UsersController : BaseController
         _logger.LogInformation("Role deleted: {RoleId}", id);
 
         return Ok(new { message = "Role deleted successfully" });
+    }
+
+    /// <summary>
+    /// ロールの権限一覧を取得
+    /// </summary>
+    [HttpGet("roles/{id}/permissions")]
+    [RequireAny("tenant.role.read", "tenant.role.manage")]
+    public async Task<IActionResult> GetRolePermissions(Guid id)
+    {
+        var tenantId = User.FindFirst("tenant")?.Value;
+
+        var role = await _dbContext.Roles
+            .Include(r => r.Permissions)
+            .FirstOrDefaultAsync(r => r.Id == id && r.TenantId == tenantId);
+        if (role == null)
+        {
+            return NotFound(new { message = "Role not found" });
+        }
+
+        return Ok(role.Permissions.Select(p => p.Name));
+    }
+
+    /// <summary>
+    /// ロールに権限を割り当て
+    /// </summary>
+    [HttpPost("roles/{id}/permissions")]
+    [RequireAny("tenant.role.manage")]
+    public async Task<IActionResult> AssignPermission(Guid id, [FromBody] AssignPermissionRequest request)
+    {
+        if (string.IsNullOrEmpty(request.Permission))
+        {
+            return BadRequest(new { message = "Permission is required" });
+        }
+
+        var tenantId = User.FindFirst("tenant")?.Value;
+
+        var role = await _dbContext.Roles
+            .Include(r => r.Permissions)
+            .FirstOrDefaultAsync(r => r.Id == id && r.TenantId == tenantId);
+        if (role == null)
+        {
+            return NotFound(new { message = "Role not found" });
+        }
+
+        // システム権限のチェック（systemテナントのみ許可）
+        if (request.Permission.StartsWith("system.") && tenantId != SystemPermissions.SystemTenantIdentifier)
+        {
+            return BadRequest(new { message = "System permissions can only be assigned in system tenant" });
+        }
+
+        // 既に割り当て済みかチェック
+        if (role.Permissions.Any(p => p.Name == request.Permission))
+        {
+            return BadRequest(new { message = "Permission already assigned" });
+        }
+
+        role.Permissions.Add(new RolePermission
+        {
+            Name = request.Permission,
+            RoleId = role.Id
+        });
+
+        await _dbContext.SaveChangesAsync();
+
+        _logger.LogInformation("Permission assigned: RoleId={RoleId}, Permission={Permission}", id, request.Permission);
+
+        return Ok(new { message = "Permission assigned successfully" });
+    }
+
+    /// <summary>
+    /// ロールから権限を削除
+    /// </summary>
+    [HttpDelete("roles/{id}/permissions/{permission}")]
+    [RequireAny("tenant.role.manage")]
+    public async Task<IActionResult> RemovePermission(Guid id, string permission)
+    {
+        var tenantId = User.FindFirst("tenant")?.Value;
+
+        var role = await _dbContext.Roles
+            .Include(r => r.Permissions)
+            .FirstOrDefaultAsync(r => r.Id == id && r.TenantId == tenantId);
+        if (role == null)
+        {
+            return NotFound(new { message = "Role not found" });
+        }
+
+        var perm = role.Permissions.FirstOrDefault(p => p.Name == permission);
+        if (perm == null)
+        {
+            return NotFound(new { message = "Permission not found" });
+        }
+
+        role.Permissions.Remove(perm);
+        await _dbContext.SaveChangesAsync();
+
+        _logger.LogInformation("Permission removed: RoleId={RoleId}, Permission={Permission}", id, permission);
+
+        return Ok(new { message = "Permission removed successfully" });
     }
 
     private Guid? GetCurrentUserId()
@@ -484,4 +599,9 @@ public class CreateRoleRequest
 public class UpdateRoleRequest
 {
     public string? Description { get; set; }
+}
+
+public class AssignPermissionRequest
+{
+    public string Permission { get; set; } = null!;
 }

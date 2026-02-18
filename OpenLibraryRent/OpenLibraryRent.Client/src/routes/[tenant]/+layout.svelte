@@ -1,12 +1,12 @@
 <script lang="ts">
-	import '../app.css';
+	import '../../app.css';
 	import { onMount } from 'svelte';
 	import { page } from '$app/stores';
 	import { auth } from '$lib/stores/auth';
 
 	let { children } = $props();
 
-	$: tenant = $page.params.tenant || '';
+	const tenant = $derived($page.params.tenant || '');
 
 	onMount(() => {
 		if (tenant) {

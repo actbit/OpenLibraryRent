@@ -33,6 +33,9 @@ public class ApplicationDbContext : MultiTenantIdentityDbContext<ApplicationUser
     public DbSet<Rental> Rentals => Set<Rental>();
     public DbSet<RentalHistory> RentalHistories => Set<RentalHistory>();
 
+    // 権限
+    public DbSet<RolePermission> RolePermissions => Set<RolePermission>();
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         base.OnModelCreating(modelBuilder);
@@ -42,6 +45,7 @@ public class ApplicationDbContext : MultiTenantIdentityDbContext<ApplicationUser
         {
             entity.HasKey(e => e.Id);
             entity.HasIndex(e => e.Identifier).IsUnique();
+            entity.HasIndex(e => e.CreatorEmail);
             entity.HasOne(e => e.Detail)
                 .WithOne(d => d.Tenant)
                 .HasForeignKey<ApplicationTenantDetail>(d => d.TenantId);
@@ -56,6 +60,17 @@ public class ApplicationDbContext : MultiTenantIdentityDbContext<ApplicationUser
         modelBuilder.Entity<ApplicationUser>()
             .HasIndex(u => new { u.TenantId, u.Sub })
             .IsUnique();
+
+        // ロール権限設定
+        modelBuilder.Entity<RolePermission>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            entity.HasIndex(e => new { e.RoleId, e.Name }).IsUnique();
+            entity.HasOne(e => e.Role)
+                .WithMany(r => r.Permissions)
+                .HasForeignKey(e => e.RoleId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
 
         // 書籍設定
         modelBuilder.Entity<Book>(entity =>
