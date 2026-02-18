@@ -26,6 +26,7 @@
 					<a href="/{tenant}/rentals">貸出状況</a>
 					{#if $auth.user.roles?.includes('Admin') || $auth.user.roles?.includes('Librarian')}
 						<a href="/{tenant}/rentals/overdue">延滞一覧</a>
+						<a href="/{tenant}/users">ユーザー管理</a>
 					{/if}
 					<span class="user-name">{$auth.user.name || $auth.user.email}</span>
 					<button onclick={() => auth.logout(tenant)}>ログアウト</button>

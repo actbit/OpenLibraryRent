@@ -40,6 +40,11 @@ public class ApplicationUser : IdentityUser<Guid>
     /// </summary>
     [StringLength(500)]
     public string? BanReason { get; set; }
+
+    /// <summary>
+    /// 作成日時
+    /// </summary>
+    public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 }
 
 /// <summary>
