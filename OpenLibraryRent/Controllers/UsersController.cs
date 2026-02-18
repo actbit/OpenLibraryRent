@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using OpenLibraryRent.Dtos;
 using OpenLibraryRent.Filters;
 using OpenLibraryRent.Models;
 using OpenLibraryRent.Permissions;
@@ -36,7 +37,7 @@ public class UsersController : BaseController
     /// </summary>
     [HttpGet]
     [Authorize(Roles = "Admin,Librarian")]
-    public async Task<IActionResult> List(
+    public async Task<ActionResult<UserListResponse>> List(
         [FromQuery] string? search = null,
         [FromQuery] int page = 1,
         [FromQuery] int pageSize = 20)
@@ -72,33 +73,39 @@ public class UsersController : BaseController
             .ToListAsync();
 
         // ロール情報を取得
-        var result = new List<object>();
+        var result = new List<UserListItemDto>();
         foreach (var user in users)
         {
             var appUser = await _userManager.FindByIdAsync(user.Id.ToString());
             var roles = appUser != null ? await _userManager.GetRolesAsync(appUser) : [];
-            result.Add(new
+            result.Add(new UserListItemDto
             {
-                user.Id,
-                user.Email,
-                user.DisplayName,
-                user.UserName,
-                user.IsBanned,
-                user.BanReason,
-                user.CreatedAt,
-                user.CurrentRentals,
-                Roles = roles
+                Id = user.Id,
+                Email = user.Email,
+                DisplayName = user.DisplayName,
+                UserName = user.UserName,
+                IsBanned = user.IsBanned,
+                BanReason = user.BanReason,
+                CreatedAt = user.CreatedAt,
+                CurrentRentals = user.CurrentRentals,
+                Roles = roles.ToList()
             });
         }
 
-        return Ok(new { users = result, total, page, pageSize });
+        return Ok(new UserListResponse
+        {
+            Users = result,
+            Total = total,
+            Page = page,
+            PageSize = pageSize
+        });
     }
 
     /// <summary>
     /// ユーザー詳細を取得
     /// </summary>
     [HttpGet("{id}")]
-    public async Task<IActionResult> Get(Guid id)
+    public async Task<ActionResult<UserDetailDto>> Get(Guid id)
     {
         var currentUserId = GetCurrentUserId();
         var isAdmin = User.IsInRole("Admin") || User.IsInRole("Librarian");
@@ -125,7 +132,7 @@ public class UsersController : BaseController
 
         if (user == null)
         {
-            return NotFound(new { message = "User not found" });
+            return NotFound(new MessageResponse("User not found"));
         }
 
         var appUser = await _userManager.FindByIdAsync(id.ToString());
@@ -135,28 +142,28 @@ public class UsersController : BaseController
         var currentRentals = await _dbContext.Rentals
             .Include(r => r.Book)
             .Where(r => r.UserId == id && (r.Status == RentalStatus.Active || r.Status == RentalStatus.Overdue))
-            .Select(r => new
+            .Select(r => new UserRentalDto
             {
-                r.Id,
-                Book = new { r.Book!.Id, r.Book.Title, r.Book.Isbn },
-                r.BorrowedAt,
-                r.DueDate,
-                r.Status
+                Id = r.Id,
+                Book = new BookSummaryDto { Id = r.Book!.Id, Title = r.Book.Title, Isbn = r.Book.Isbn },
+                BorrowedAt = r.BorrowedAt,
+                DueDate = r.DueDate,
+                Status = r.Status.ToString()
             })
             .ToListAsync();
 
         var totalRentals = await _dbContext.RentalHistories.CountAsync(h => h.UserId == id);
 
-        return Ok(new
+        return Ok(new UserDetailDto
         {
-            user.Id,
-            user.Email,
-            user.DisplayName,
-            user.UserName,
-            user.IsBanned,
-            user.BanReason,
-            user.CreatedAt,
-            Roles = roles,
+            Id = user.Id,
+            Email = user.Email,
+            DisplayName = user.DisplayName,
+            UserName = user.UserName,
+            IsBanned = user.IsBanned,
+            BanReason = user.BanReason,
+            CreatedAt = user.CreatedAt,
+            Roles = roles.ToList(),
             CurrentRentals = currentRentals,
             TotalRentals = totalRentals
         });
@@ -166,7 +173,7 @@ public class UsersController : BaseController
     /// ユーザー情報を更新
     /// </summary>
     [HttpPut("{id}")]
-    public async Task<IActionResult> Update(Guid id, [FromBody] UpdateUserRequest request)
+    public async Task<ActionResult<UserUpdateDto>> Update(Guid id, [FromBody] UpdateUserRequest request)
     {
         var currentUserId = GetCurrentUserId();
         var isAdmin = User.IsInRole("Admin");
@@ -180,7 +187,7 @@ public class UsersController : BaseController
         var user = await _dbContext.Users.FindAsync(id);
         if (user == null)
         {
-            return NotFound(new { message = "User not found" });
+            return NotFound(new MessageResponse("User not found"));
         }
 
         if (!string.IsNullOrEmpty(request.DisplayName))
@@ -192,11 +199,11 @@ public class UsersController : BaseController
 
         _logger.LogInformation("User updated: {UserId}", id);
 
-        return Ok(new
+        return Ok(new UserUpdateDto
         {
-            user.Id,
-            user.DisplayName,
-            user.Email
+            Id = user.Id,
+            DisplayName = user.DisplayName,
+            Email = user.Email
         });
     }
 
@@ -205,12 +212,12 @@ public class UsersController : BaseController
     /// </summary>
     [HttpPost("{id}/ban")]
     [Authorize(Roles = "Admin")]
-    public async Task<IActionResult> Ban(Guid id, [FromBody] BanRequest request)
+    public async Task<ActionResult<BanStatusDto>> Ban(Guid id, [FromBody] BanRequest request)
     {
         var user = await _dbContext.Users.FindAsync(id);
         if (user == null)
         {
-            return NotFound(new { message = "User not found" });
+            return NotFound(new MessageResponse("User not found"));
         }
 
         // アクティブな貸出がある場合はBAN不可
@@ -219,7 +226,7 @@ public class UsersController : BaseController
 
         if (hasActiveRentals)
         {
-            return BadRequest(new { message = "Cannot ban user with active rentals" });
+            return BadRequest(new MessageResponse("Cannot ban user with active rentals"));
         }
 
         user.IsBanned = true;
@@ -229,11 +236,11 @@ public class UsersController : BaseController
 
         _logger.LogInformation("User banned: {UserId}, Reason: {Reason}", id, request.Reason);
 
-        return Ok(new
+        return Ok(new BanStatusDto
         {
-            user.Id,
-            user.IsBanned,
-            user.BanReason
+            Id = user.Id,
+            IsBanned = user.IsBanned,
+            BanReason = user.BanReason
         });
     }
 
@@ -242,12 +249,12 @@ public class UsersController : BaseController
     /// </summary>
     [HttpDelete("{id}/ban")]
     [Authorize(Roles = "Admin")]
-    public async Task<IActionResult> Unban(Guid id)
+    public async Task<ActionResult<BanStatusDto>> Unban(Guid id)
     {
         var user = await _dbContext.Users.FindAsync(id);
         if (user == null)
         {
-            return NotFound(new { message = "User not found" });
+            return NotFound(new MessageResponse("User not found"));
         }
 
         user.IsBanned = false;
@@ -257,10 +264,10 @@ public class UsersController : BaseController
 
         _logger.LogInformation("User unbanned: {UserId}", id);
 
-        return Ok(new
+        return Ok(new BanStatusDto
         {
-            user.Id,
-            user.IsBanned
+            Id = user.Id,
+            IsBanned = user.IsBanned
         });
     }
 
@@ -269,17 +276,17 @@ public class UsersController : BaseController
     /// </summary>
     [HttpGet("{id}/roles")]
     [Authorize(Roles = "Admin")]
-    public async Task<IActionResult> GetRoles(Guid id)
+    public async Task<ActionResult<RolesResponse>> GetRoles(Guid id)
     {
         var user = await _userManager.FindByIdAsync(id.ToString());
         if (user == null)
         {
-            return NotFound(new { message = "User not found" });
+            return NotFound(new MessageResponse("User not found"));
         }
 
         var roles = await _userManager.GetRolesAsync(user);
 
-        return Ok(new { roles });
+        return Ok(new RolesResponse { Roles = roles.ToList() });
     }
 
     /// <summary>
@@ -287,30 +294,30 @@ public class UsersController : BaseController
     /// </summary>
     [HttpPost("{id}/roles")]
     [Authorize(Roles = "Admin")]
-    public async Task<IActionResult> AssignRole(Guid id, [FromBody] AssignRoleRequest request)
+    public async Task<ActionResult<MessageResponse>> AssignRole(Guid id, [FromBody] AssignRoleRequest request)
     {
         var user = await _userManager.FindByIdAsync(id.ToString());
         if (user == null)
         {
-            return NotFound(new { message = "User not found" });
+            return NotFound(new MessageResponse("User not found"));
         }
 
         var roleExists = await _roleManager.RoleExistsAsync(request.Role);
         if (!roleExists)
         {
-            return BadRequest(new { message = "Role not found" });
+            return BadRequest(new MessageResponse("Role not found"));
         }
 
         var result = await _userManager.AddToRoleAsync(user, request.Role);
 
         if (!result.Succeeded)
         {
-            return BadRequest(new { message = string.Join(", ", result.Errors.Select(e => e.Description)) });
+            return BadRequest(new MessageResponse(string.Join(", ", result.Errors.Select(e => e.Description))));
         }
 
         _logger.LogInformation("Role assigned: UserId={UserId}, Role={Role}", id, request.Role);
 
-        return Ok(new { message = "Role assigned successfully" });
+        return Ok(new MessageResponse("Role assigned successfully"));
     }
 
     /// <summary>
@@ -318,24 +325,24 @@ public class UsersController : BaseController
     /// </summary>
     [HttpDelete("{id}/roles/{role}")]
     [Authorize(Roles = "Admin")]
-    public async Task<IActionResult> RemoveRole(Guid id, string role)
+    public async Task<ActionResult<MessageResponse>> RemoveRole(Guid id, string role)
     {
         var user = await _userManager.FindByIdAsync(id.ToString());
         if (user == null)
         {
-            return NotFound(new { message = "User not found" });
+            return NotFound(new MessageResponse("User not found"));
         }
 
         var result = await _userManager.RemoveFromRoleAsync(user, role);
 
         if (!result.Succeeded)
         {
-            return BadRequest(new { message = string.Join(", ", result.Errors.Select(e => e.Description)) });
+            return BadRequest(new MessageResponse(string.Join(", ", result.Errors.Select(e => e.Description))));
         }
 
         _logger.LogInformation("Role removed: UserId={UserId}, Role={Role}", id, role);
 
-        return Ok(new { message = "Role removed successfully" });
+        return Ok(new MessageResponse("Role removed successfully"));
     }
 
     /// <summary>
@@ -343,17 +350,17 @@ public class UsersController : BaseController
     /// </summary>
     [HttpGet("roles")]
     [RequireAny("tenant.role.read", "tenant.role.manage")]
-    public async Task<IActionResult> ListRoles()
+    public async Task<ActionResult<List<RoleListItemDto>>> ListRoles()
     {
         var tenantId = User.FindFirst("tenant")?.Value;
 
         var roles = await _dbContext.Roles
             .Where(r => r.TenantId == tenantId)
-            .Select(r => new
+            .Select(r => new RoleListItemDto
             {
-                r.Id,
-                r.Name,
-                r.Description,
+                Id = r.Id,
+                Name = r.Name,
+                Description = r.Description,
                 Permissions = r.Permissions.Select(p => p.Name).ToList(),
                 UserCount = _dbContext.UserRoles.Count(ur => ur.RoleId == r.Id)
             })
@@ -367,11 +374,11 @@ public class UsersController : BaseController
     /// </summary>
     [HttpPost("roles")]
     [RequireAny("tenant.role.manage")]
-    public async Task<IActionResult> CreateRole([FromBody] CreateRoleRequest request)
+    public async Task<ActionResult<RoleDto>> CreateRole([FromBody] CreateRoleRequest request)
     {
         if (string.IsNullOrEmpty(request.Name))
         {
-            return BadRequest(new { message = "Role name is required" });
+            return BadRequest(new MessageResponse("Role name is required"));
         }
 
         var tenantId = User.FindFirst("tenant")?.Value;
@@ -381,7 +388,7 @@ public class UsersController : BaseController
             .AnyAsync(r => r.TenantId == tenantId && r.Name == request.Name);
         if (exists)
         {
-            return BadRequest(new { message = "Role already exists" });
+            return BadRequest(new MessageResponse("Role already exists"));
         }
 
         var role = new ApplicationRole
@@ -395,12 +402,12 @@ public class UsersController : BaseController
 
         if (!result.Succeeded)
         {
-            return BadRequest(new { message = string.Join(", ", result.Errors.Select(e => e.Description)) });
+            return BadRequest(new MessageResponse(string.Join(", ", result.Errors.Select(e => e.Description))));
         }
 
         _logger.LogInformation("Role created: {RoleName} in tenant: {TenantId}", request.Name, tenantId);
 
-        return Ok(new { role.Id, role.Name, role.Description });
+        return Ok(new RoleDto { Id = role.Id, Name = role.Name, Description = role.Description });
     }
 
     /// <summary>
@@ -408,7 +415,7 @@ public class UsersController : BaseController
     /// </summary>
     [HttpPut("roles/{id}")]
     [RequireAny("tenant.role.manage")]
-    public async Task<IActionResult> UpdateRole(Guid id, [FromBody] UpdateRoleRequest request)
+    public async Task<ActionResult<RoleDto>> UpdateRole(Guid id, [FromBody] UpdateRoleRequest request)
     {
         var tenantId = User.FindFirst("tenant")?.Value;
 
@@ -416,7 +423,7 @@ public class UsersController : BaseController
             .FirstOrDefaultAsync(r => r.Id == id && r.TenantId == tenantId);
         if (role == null)
         {
-            return NotFound(new { message = "Role not found" });
+            return NotFound(new MessageResponse("Role not found"));
         }
 
         if (!string.IsNullOrEmpty(request.Description))
@@ -428,7 +435,7 @@ public class UsersController : BaseController
 
         _logger.LogInformation("Role updated: {RoleId}", id);
 
-        return Ok(new { role.Id, role.Name, role.Description });
+        return Ok(new RoleDto { Id = role.Id, Name = role.Name, Description = role.Description });
     }
 
     /// <summary>
@@ -436,7 +443,7 @@ public class UsersController : BaseController
     /// </summary>
     [HttpDelete("roles/{id}")]
     [RequireAny("tenant.role.manage")]
-    public async Task<IActionResult> DeleteRole(Guid id)
+    public async Task<ActionResult<MessageResponse>> DeleteRole(Guid id)
     {
         var tenantId = User.FindFirst("tenant")?.Value;
 
@@ -444,26 +451,26 @@ public class UsersController : BaseController
             .FirstOrDefaultAsync(r => r.Id == id && r.TenantId == tenantId);
         if (role == null)
         {
-            return NotFound(new { message = "Role not found" });
+            return NotFound(new MessageResponse("Role not found"));
         }
 
         // ユーザーが割り当てられている場合は削除不可
         var hasUsers = await _dbContext.UserRoles.AnyAsync(ur => ur.RoleId == id);
         if (hasUsers)
         {
-            return BadRequest(new { message = "Cannot delete role with assigned users" });
+            return BadRequest(new MessageResponse("Cannot delete role with assigned users"));
         }
 
         var result = await _roleManager.DeleteAsync(role);
 
         if (!result.Succeeded)
         {
-            return BadRequest(new { message = string.Join(", ", result.Errors.Select(e => e.Description)) });
+            return BadRequest(new MessageResponse(string.Join(", ", result.Errors.Select(e => e.Description))));
         }
 
         _logger.LogInformation("Role deleted: {RoleId}", id);
 
-        return Ok(new { message = "Role deleted successfully" });
+        return Ok(new MessageResponse("Role deleted successfully"));
     }
 
     /// <summary>
@@ -471,7 +478,7 @@ public class UsersController : BaseController
     /// </summary>
     [HttpGet("roles/{id}/permissions")]
     [RequireAny("tenant.role.read", "tenant.role.manage")]
-    public async Task<IActionResult> GetRolePermissions(Guid id)
+    public async Task<ActionResult<List<string>>> GetRolePermissions(Guid id)
     {
         var tenantId = User.FindFirst("tenant")?.Value;
 
@@ -480,10 +487,10 @@ public class UsersController : BaseController
             .FirstOrDefaultAsync(r => r.Id == id && r.TenantId == tenantId);
         if (role == null)
         {
-            return NotFound(new { message = "Role not found" });
+            return NotFound(new MessageResponse("Role not found"));
         }
 
-        return Ok(role.Permissions.Select(p => p.Name));
+        return Ok(role.Permissions.Select(p => p.Name).ToList());
     }
 
     /// <summary>
@@ -491,11 +498,11 @@ public class UsersController : BaseController
     /// </summary>
     [HttpPost("roles/{id}/permissions")]
     [RequireAny("tenant.role.manage")]
-    public async Task<IActionResult> AssignPermission(Guid id, [FromBody] AssignPermissionRequest request)
+    public async Task<ActionResult<MessageResponse>> AssignPermission(Guid id, [FromBody] AssignPermissionRequest request)
     {
         if (string.IsNullOrEmpty(request.Permission))
         {
-            return BadRequest(new { message = "Permission is required" });
+            return BadRequest(new MessageResponse("Permission is required"));
         }
 
         var tenantId = User.FindFirst("tenant")?.Value;
@@ -505,19 +512,19 @@ public class UsersController : BaseController
             .FirstOrDefaultAsync(r => r.Id == id && r.TenantId == tenantId);
         if (role == null)
         {
-            return NotFound(new { message = "Role not found" });
+            return NotFound(new MessageResponse("Role not found"));
         }
 
         // システム権限のチェック（systemテナントのみ許可）
         if (request.Permission.StartsWith("system.") && tenantId != SystemPermissions.SystemTenantIdentifier)
         {
-            return BadRequest(new { message = "System permissions can only be assigned in system tenant" });
+            return BadRequest(new MessageResponse("System permissions can only be assigned in system tenant"));
         }
 
         // 既に割り当て済みかチェック
         if (role.Permissions.Any(p => p.Name == request.Permission))
         {
-            return BadRequest(new { message = "Permission already assigned" });
+            return BadRequest(new MessageResponse("Permission already assigned"));
         }
 
         role.Permissions.Add(new RolePermission
@@ -530,7 +537,7 @@ public class UsersController : BaseController
 
         _logger.LogInformation("Permission assigned: RoleId={RoleId}, Permission={Permission}", id, request.Permission);
 
-        return Ok(new { message = "Permission assigned successfully" });
+        return Ok(new MessageResponse("Permission assigned successfully"));
     }
 
     /// <summary>
@@ -538,7 +545,7 @@ public class UsersController : BaseController
     /// </summary>
     [HttpDelete("roles/{id}/permissions/{permission}")]
     [RequireAny("tenant.role.manage")]
-    public async Task<IActionResult> RemovePermission(Guid id, string permission)
+    public async Task<ActionResult<MessageResponse>> RemovePermission(Guid id, string permission)
     {
         var tenantId = User.FindFirst("tenant")?.Value;
 
@@ -547,13 +554,13 @@ public class UsersController : BaseController
             .FirstOrDefaultAsync(r => r.Id == id && r.TenantId == tenantId);
         if (role == null)
         {
-            return NotFound(new { message = "Role not found" });
+            return NotFound(new MessageResponse("Role not found"));
         }
 
         var perm = role.Permissions.FirstOrDefault(p => p.Name == permission);
         if (perm == null)
         {
-            return NotFound(new { message = "Permission not found" });
+            return NotFound(new MessageResponse("Permission not found"));
         }
 
         role.Permissions.Remove(perm);
@@ -561,7 +568,7 @@ public class UsersController : BaseController
 
         _logger.LogInformation("Permission removed: RoleId={RoleId}, Permission={Permission}", id, permission);
 
-        return Ok(new { message = "Permission removed successfully" });
+        return Ok(new MessageResponse("Permission removed successfully"));
     }
 
     private Guid? GetCurrentUserId()

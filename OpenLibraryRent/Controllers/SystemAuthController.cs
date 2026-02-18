@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using System.Security.Claims;
+using OpenLibraryRent.Dtos;
 
 namespace OpenLibraryRent.Controllers;
 
@@ -50,18 +51,18 @@ public class SystemAuthController : ControllerBase
     /// </summary>
     [HttpGet("me")]
     [Authorize]
-    public IActionResult Me()
+    public ActionResult<UserInfoDto> Me()
     {
         var userId = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
         var email = User.FindFirst(ClaimTypes.Email)?.Value;
         var name = User.FindFirst(ClaimTypes.Name)?.Value;
 
-        return Ok(new
+        return Ok(new UserInfoDto
         {
-            userId,
-            email,
-            name,
-            isAuthenticated = User.Identity?.IsAuthenticated ?? false
+            UserId = userId,
+            Email = email,
+            Name = name,
+            IsAuthenticated = User.Identity?.IsAuthenticated ?? false
         });
     }
 
@@ -70,12 +71,12 @@ public class SystemAuthController : ControllerBase
     /// </summary>
     [HttpGet("check")]
     [AllowAnonymous]
-    public IActionResult Check()
+    public ActionResult<SystemAuthStatusDto> Check()
     {
-        return Ok(new
+        return Ok(new SystemAuthStatusDto
         {
-            isAuthenticated = User.Identity?.IsAuthenticated ?? false,
-            email = User.FindFirst(ClaimTypes.Email)?.Value
+            IsAuthenticated = User.Identity?.IsAuthenticated ?? false,
+            Email = User.FindFirst(ClaimTypes.Email)?.Value
         });
     }
 
@@ -84,12 +85,12 @@ public class SystemAuthController : ControllerBase
     /// </summary>
     [HttpPost("logout")]
     [Authorize]
-    public async Task<IActionResult> Logout()
+    public async Task<ActionResult<MessageResponse>> Logout()
     {
         await HttpContext.SignOutAsync(CookieAuthenticationDefaults.AuthenticationScheme);
 
         _logger.LogInformation("User logged out from system auth");
 
-        return Ok(new { message = "Logged out successfully" });
+        return Ok(new MessageResponse("Logged out successfully"));
     }
 }

@@ -106,7 +106,7 @@
 				テナントを作成するには、Microsoft アカウントでログインしてください。
 			</p>
 			<p class="note">
-				※ Microsoft ログインは滥用防止のための認証です。<br>
+				※ Microsoft ログインは濫用防止のための認証です。<br>
 				テナントごとのOIDC設定は別途行います。
 			</p>
 			<button class="btn microsoft" onclick={loginWithMicrosoft}>

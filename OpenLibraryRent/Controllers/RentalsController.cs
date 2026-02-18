@@ -2,6 +2,7 @@ using System.Security.Claims;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using OpenLibraryRent.Dtos;
 using OpenLibraryRent.Models;
 using OpenLibraryRent.Services;
 
@@ -30,7 +31,7 @@ public class RentalsController : BaseController
     /// 現在のユーザーの貸出一覧を取得
     /// </summary>
     [HttpGet("my")]
-    public async Task<IActionResult> GetMyRentals()
+    public async Task<ActionResult<List<MyRentalDto>>> GetMyRentals()
     {
         var userId = GetCurrentUserId();
         if (userId == null)
@@ -42,24 +43,24 @@ public class RentalsController : BaseController
             .Include(r => r.Book)
             .Include(r => r.BookCopy)
             .Where(r => r.UserId == userId && (r.Status == RentalStatus.Active || r.Status == RentalStatus.Overdue))
-            .Select(r => new
+            .Select(r => new MyRentalDto
             {
-                r.Id,
-                Book = new
+                Id = r.Id,
+                Book = new RentalBookDto
                 {
-                    r.Book!.Id,
-                    r.Book.Isbn,
-                    r.Book.Title,
-                    r.Book.CoverImageUrl
+                    Id = r.Book!.Id,
+                    Isbn = r.Book.Isbn,
+                    Title = r.Book.Title,
+                    CoverImageUrl = r.Book.CoverImageUrl
                 },
-                BookCopy = new
+                BookCopy = new RentalBookCopyDto
                 {
-                    r.BookCopy!.Id,
-                    r.BookCopy.InventoryCode
+                    Id = r.BookCopy!.Id,
+                    InventoryCode = r.BookCopy.InventoryCode
                 },
-                r.BorrowedAt,
-                r.DueDate,
-                r.Status,
+                BorrowedAt = r.BorrowedAt,
+                DueDate = r.DueDate,
+                Status = r.Status.ToString(),
                 OverdueDays = r.IsOverdue ? (int)(DateTime.UtcNow - r.DueDate).TotalDays : 0
             })
             .OrderBy(r => r.DueDate)
@@ -73,7 +74,7 @@ public class RentalsController : BaseController
     /// </summary>
     [HttpGet]
     [Authorize(Roles = "Admin,Librarian")]
-    public async Task<IActionResult> List([FromQuery] bool? overdueOnly = false)
+    public async Task<ActionResult<List<AdminRentalDto>>> List([FromQuery] bool? overdueOnly = false)
     {
         var query = _dbContext.Rentals
             .Include(r => r.Book)
@@ -87,29 +88,30 @@ public class RentalsController : BaseController
         }
 
         var rentals = await query
-            .Select(r => new
+            .Select(r => new AdminRentalDto
             {
-                r.Id,
-                Book = new
+                Id = r.Id,
+                Book = new RentalBookDto
                 {
-                    r.Book!.Id,
-                    r.Book.Isbn,
-                    r.Book.Title,
-                    r.Book.CoverImageUrl
+                    Id = r.Book!.Id,
+                    Isbn = r.Book.Isbn,
+                    Title = r.Book.Title,
+                    CoverImageUrl = r.Book.CoverImageUrl
                 },
-                BookCopy = new
+                BookCopy = new RentalBookCopyDto
                 {
-                    r.BookCopy!.Id,
-                    r.BookCopy.InventoryCode
+                    Id = r.BookCopy!.Id,
+                    InventoryCode = r.BookCopy.InventoryCode
                 },
-                User = new
+                User = new RentalUserDto
                 {
-                    r.User!.Id,
-                    DisplayName = r.User.DisplayName ?? r.User.UserName
+                    Id = r.User!.Id,
+                    DisplayName = r.User.DisplayName ?? r.User.UserName,
+                    Email = null
                 },
-                r.BorrowedAt,
-                r.DueDate,
-                r.Status,
+                BorrowedAt = r.BorrowedAt,
+                DueDate = r.DueDate,
+                Status = r.Status.ToString(),
                 OverdueDays = r.IsOverdue ? (int)(DateTime.UtcNow - r.DueDate).TotalDays : 0
             })
             .OrderBy(r => r.DueDate)
@@ -123,35 +125,35 @@ public class RentalsController : BaseController
     /// </summary>
     [HttpGet("overdue")]
     [Authorize(Roles = "Admin,Librarian")]
-    public async Task<IActionResult> GetOverdue()
+    public async Task<ActionResult<List<OverdueRentalDto>>> GetOverdue()
     {
         var rentals = await _rentalService.GetOverdueRentalsAsync();
 
-        var result = rentals.Select(r => new
+        var result = rentals.Select(r => new OverdueRentalDto
         {
-            r.Id,
-            Book = new
+            Id = r.Id,
+            Book = new RentalBookDto
             {
-                r.Book!.Id,
-                r.Book.Isbn,
-                r.Book.Title,
-                r.Book.CoverImageUrl
+                Id = r.Book!.Id,
+                Isbn = r.Book.Isbn,
+                Title = r.Book.Title,
+                CoverImageUrl = r.Book.CoverImageUrl
             },
-            BookCopy = new
+            BookCopy = new RentalBookCopyDto
             {
-                r.BookCopy!.Id,
-                r.BookCopy.InventoryCode
+                Id = r.BookCopy!.Id,
+                InventoryCode = r.BookCopy.InventoryCode
             },
-            User = new
+            User = new RentalUserDto
             {
-                r.User!.Id,
+                Id = r.User!.Id,
                 DisplayName = r.User.DisplayName ?? r.User.UserName,
-                r.User.Email
+                Email = r.User.Email
             },
-            r.BorrowedAt,
-            r.DueDate,
+            BorrowedAt = r.BorrowedAt,
+            DueDate = r.DueDate,
             OverdueDays = (int)(DateTime.UtcNow - r.DueDate).TotalDays
-        });
+        }).ToList();
 
         return Ok(result);
     }
@@ -161,7 +163,7 @@ public class RentalsController : BaseController
     /// </summary>
     [HttpPost("borrow")]
     [Authorize(Roles = "Admin,Librarian")]
-    public async Task<IActionResult> Borrow([FromBody] BorrowRequest request)
+    public async Task<ActionResult<BorrowResultDto>> Borrow([FromBody] BorrowRequest request)
     {
         var userId = request.UserId ?? GetCurrentUserId();
         if (userId == null)
@@ -184,7 +186,7 @@ public class RentalsController : BaseController
 
         if (currentCount >= maxLoans)
         {
-            return BadRequest(new { message = $"Maximum loans ({maxLoans}) reached" });
+            return BadRequest(new MessageResponse($"Maximum loans ({maxLoans}) reached"));
         }
 
         try
@@ -209,30 +211,30 @@ public class RentalsController : BaseController
 
                 if (rental == null)
                 {
-                    return NotFound(new { message = "No available copy found for this ISBN" });
+                    return NotFound(new MessageResponse("No available copy found for this ISBN"));
                 }
             }
             else
             {
-                return BadRequest(new { message = "BookCopyId or Isbn is required" });
+                return BadRequest(new MessageResponse("BookCopyId or Isbn is required"));
             }
 
             _logger.LogInformation("Book borrowed: RentalId={RentalId}, UserId={UserId}", rental.Id, userId);
 
-            return Ok(new
+            return Ok(new BorrowResultDto
             {
-                rental.Id,
-                rental.BookId,
-                rental.BookCopyId,
-                rental.UserId,
-                rental.BorrowedAt,
-                rental.DueDate
+                Id = rental.Id,
+                BookId = rental.BookId,
+                BookCopyId = rental.BookCopyId,
+                UserId = rental.UserId,
+                BorrowedAt = rental.BorrowedAt,
+                DueDate = rental.DueDate
             });
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Failed to borrow book");
-            return BadRequest(new { message = ex.Message });
+            return BadRequest(new MessageResponse(ex.Message));
         }
     }
 
@@ -241,7 +243,7 @@ public class RentalsController : BaseController
     /// </summary>
     [HttpPost("{id}/return")]
     [Authorize(Roles = "Admin,Librarian")]
-    public async Task<IActionResult> Return(Guid id, [FromBody] ReturnRequest? request = null)
+    public async Task<ActionResult<ReturnResultDto>> Return(Guid id, [FromBody] ReturnRequest? request = null)
     {
         try
         {
@@ -250,22 +252,22 @@ public class RentalsController : BaseController
             _logger.LogInformation("Book returned: RentalId={RentalId}, OverdueDays={OverdueDays}",
                 id, history.OverdueDays);
 
-            return Ok(new
+            return Ok(new ReturnResultDto
             {
-                history.Id,
-                history.BookId,
-                history.BookCopyId,
-                history.UserId,
-                history.BorrowedAt,
-                history.DueDate,
-                history.ReturnedAt,
-                history.OverdueDays
+                Id = history.Id,
+                BookId = history.BookId,
+                BookCopyId = history.BookCopyId,
+                UserId = history.UserId,
+                BorrowedAt = history.BorrowedAt,
+                DueDate = history.DueDate,
+                ReturnedAt = history.ReturnedAt,
+                OverdueDays = history.OverdueDays
             });
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Failed to return book");
-            return BadRequest(new { message = ex.Message });
+            return BadRequest(new MessageResponse(ex.Message));
         }
     }
 
@@ -274,7 +276,7 @@ public class RentalsController : BaseController
     /// </summary>
     [HttpPost("return-by-isbn")]
     [Authorize(Roles = "Admin,Librarian")]
-    public async Task<IActionResult> ReturnByIsbn([FromBody] ReturnByIsbnRequest request)
+    public async Task<ActionResult<ReturnResultDto>> ReturnByIsbn([FromBody] ReturnByIsbnRequest request)
     {
         var userId = request.UserId ?? GetCurrentUserId();
         if (userId == null)
@@ -288,28 +290,28 @@ public class RentalsController : BaseController
 
             if (history == null)
             {
-                return NotFound(new { message = "No active rental found for this ISBN and user" });
+                return NotFound(new MessageResponse("No active rental found for this ISBN and user"));
             }
 
             _logger.LogInformation("Book returned by ISBN: Isbn={Isbn}, UserId={UserId}",
                 request.Isbn, userId);
 
-            return Ok(new
+            return Ok(new ReturnResultDto
             {
-                history.Id,
-                history.BookId,
-                history.BookCopyId,
-                history.UserId,
-                history.BorrowedAt,
-                history.DueDate,
-                history.ReturnedAt,
-                history.OverdueDays
+                Id = history.Id,
+                BookId = history.BookId,
+                BookCopyId = history.BookCopyId,
+                UserId = history.UserId,
+                BorrowedAt = history.BorrowedAt,
+                DueDate = history.DueDate,
+                ReturnedAt = history.ReturnedAt,
+                OverdueDays = history.OverdueDays
             });
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Failed to return book by ISBN");
-            return BadRequest(new { message = ex.Message });
+            return BadRequest(new MessageResponse(ex.Message));
         }
     }
 
@@ -317,7 +319,7 @@ public class RentalsController : BaseController
     /// 自分で返却処理
     /// </summary>
     [HttpPost("my/{id}/return")]
-    public async Task<IActionResult> ReturnMy(Guid id, [FromBody] ReturnRequest? request = null)
+    public async Task<ActionResult<MyReturnResultDto>> ReturnMy(Guid id, [FromBody] ReturnRequest? request = null)
     {
         var userId = GetCurrentUserId();
         if (userId == null)
@@ -330,7 +332,7 @@ public class RentalsController : BaseController
 
         if (rental == null)
         {
-            return NotFound(new { message = "Rental not found" });
+            return NotFound(new MessageResponse("Rental not found"));
         }
 
         try
@@ -340,18 +342,18 @@ public class RentalsController : BaseController
             _logger.LogInformation("User returned book: RentalId={RentalId}, UserId={UserId}",
                 id, userId);
 
-            return Ok(new
+            return Ok(new MyReturnResultDto
             {
-                history.Id,
-                history.BookId,
-                history.ReturnedAt,
-                history.OverdueDays
+                Id = history.Id,
+                BookId = history.BookId,
+                ReturnedAt = history.ReturnedAt,
+                OverdueDays = history.OverdueDays
             });
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Failed to return book");
-            return BadRequest(new { message = ex.Message });
+            return BadRequest(new MessageResponse(ex.Message));
         }
     }
 
@@ -359,7 +361,7 @@ public class RentalsController : BaseController
     /// 貸出履歴を取得
     /// </summary>
     [HttpGet("history")]
-    public async Task<IActionResult> GetHistory([FromQuery] int page = 1, [FromQuery] int pageSize = 20)
+    public async Task<ActionResult<RentalHistoryResponse>> GetHistory([FromQuery] int page = 1, [FromQuery] int pageSize = 20)
     {
         var userId = GetCurrentUserId();
         if (userId == null)
@@ -377,24 +379,30 @@ public class RentalsController : BaseController
             .OrderByDescending(h => h.ReturnedAt)
             .Skip((page - 1) * pageSize)
             .Take(pageSize)
-            .Select(h => new
+            .Select(h => new RentalHistoryItemDto
             {
-                h.Id,
-                Book = new
+                Id = h.Id,
+                Book = new RentalBookDto
                 {
-                    h.Book!.Id,
-                    h.Book.Isbn,
-                    h.Book.Title,
-                    h.Book.CoverImageUrl
+                    Id = h.Book!.Id,
+                    Isbn = h.Book.Isbn,
+                    Title = h.Book.Title,
+                    CoverImageUrl = h.Book.CoverImageUrl
                 },
-                h.BorrowedAt,
-                h.DueDate,
-                h.ReturnedAt,
-                h.OverdueDays
+                BorrowedAt = h.BorrowedAt,
+                DueDate = h.DueDate,
+                ReturnedAt = h.ReturnedAt,
+                OverdueDays = h.OverdueDays
             })
             .ToListAsync();
 
-        return Ok(new { history, total, page, pageSize });
+        return Ok(new RentalHistoryResponse
+        {
+            History = history,
+            Total = total,
+            Page = page,
+            PageSize = pageSize
+        });
     }
 
     private Guid? GetCurrentUserId()

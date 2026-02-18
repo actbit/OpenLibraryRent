@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using OpenLibraryRent.Dtos;
 using OpenLibraryRent.Models;
 using OpenLibraryRent.Services;
 
@@ -29,7 +30,7 @@ public class BooksController : BaseController
     /// 書籍一覧を取得
     /// </summary>
     [HttpGet]
-    public async Task<IActionResult> List([FromQuery] string? search, [FromQuery] int page = 1, [FromQuery] int pageSize = 20)
+    public async Task<ActionResult<BookListResponse>> List([FromQuery] string? search, [FromQuery] int page = 1, [FromQuery] int pageSize = 20)
     {
         var query = _dbContext.Books
             .Include(b => b.Copies)
@@ -48,28 +49,34 @@ public class BooksController : BaseController
             .OrderByDescending(b => b.CreatedAt)
             .Skip((page - 1) * pageSize)
             .Take(pageSize)
-            .Select(b => new
+            .Select(b => new BookListItemDto
             {
-                b.Id,
-                b.Isbn,
-                b.Title,
-                b.Authors,
-                b.Publisher,
-                b.PublishYear,
-                b.CoverImageUrl,
-                b.TotalCopies,
-                b.AvailableCopies
+                Id = b.Id,
+                Isbn = b.Isbn,
+                Title = b.Title,
+                Authors = b.Authors,
+                Publisher = b.Publisher,
+                PublishYear = b.PublishYear,
+                CoverImageUrl = b.CoverImageUrl,
+                TotalCopies = b.TotalCopies,
+                AvailableCopies = b.AvailableCopies
             })
             .ToListAsync();
 
-        return Ok(new { books, total, page, pageSize });
+        return Ok(new BookListResponse
+        {
+            Books = books,
+            Total = total,
+            Page = page,
+            PageSize = pageSize
+        });
     }
 
     /// <summary>
     /// 書籍詳細を取得
     /// </summary>
     [HttpGet("{id}")]
-    public async Task<IActionResult> Get(Guid id)
+    public async Task<ActionResult<BookDetailDto>> Get(Guid id)
     {
         var book = await _dbContext.Books
             .Include(b => b.Copies)
@@ -77,29 +84,29 @@ public class BooksController : BaseController
 
         if (book == null)
         {
-            return NotFound(new { message = "Book not found" });
+            return NotFound(new MessageResponse("Book not found"));
         }
 
-        return Ok(new
+        return Ok(new BookDetailDto
         {
-            book.Id,
-            book.Isbn,
-            book.Title,
-            book.Authors,
-            book.Publisher,
-            book.PublishYear,
-            book.PageCount,
-            book.CoverImageUrl,
-            book.Description,
-            book.TotalCopies,
-            book.AvailableCopies,
-            Copies = book.Copies?.Select(c => new
+            Id = book.Id,
+            Isbn = book.Isbn,
+            Title = book.Title,
+            Authors = book.Authors,
+            Publisher = book.Publisher,
+            PublishYear = book.PublishYear,
+            PageCount = book.PageCount,
+            CoverImageUrl = book.CoverImageUrl,
+            Description = book.Description,
+            TotalCopies = book.TotalCopies,
+            AvailableCopies = book.AvailableCopies,
+            Copies = book.Copies?.Select(c => new BookCopyDto
             {
-                c.Id,
-                c.InventoryCode,
-                c.Status,
-                c.Notes
-            })
+                Id = c.Id,
+                InventoryCode = c.InventoryCode,
+                Status = c.Status.ToString(),
+                Notes = c.Notes
+            }).ToList()
         });
     }
 
@@ -108,23 +115,33 @@ public class BooksController : BaseController
     /// </summary>
     [HttpGet("fetch-from-openlibrary/{isbn}")]
     [AllowAnonymous]
-    public async Task<IActionResult> FetchFromOpenLibrary(string isbn)
+    public async Task<ActionResult<OpenLibraryBookDto>> FetchFromOpenLibrary(string isbn)
     {
         var bookData = await _openLibraryService.GetBookByIsbnAsync(isbn);
 
         if (bookData == null)
         {
-            return NotFound(new { message = "Book not found in Open Library" });
+            return NotFound(new MessageResponse("Book not found in Open Library"));
         }
 
-        return Ok(bookData);
+        return Ok(new OpenLibraryBookDto
+        {
+            Isbn = bookData.Isbn,
+            Title = bookData.Title,
+            Authors = bookData.Authors,
+            Publisher = bookData.Publisher,
+            PublishYear = bookData.PublishYear,
+            PageCount = bookData.PageCount,
+            CoverImageUrl = bookData.CoverImageUrl,
+            Description = bookData.Description
+        });
     }
 
     /// <summary>
     /// 書籍を登録
     /// </summary>
     [HttpPost]
-    public async Task<IActionResult> Create([FromBody] CreateBookRequest request)
+    public async Task<ActionResult<BookCreateResultDto>> Create([FromBody] CreateBookRequest request)
     {
         // 既存のISBNチェック
         var existing = await _dbContext.Books
@@ -132,7 +149,7 @@ public class BooksController : BaseController
 
         if (existing != null)
         {
-            return Conflict(new { message = "Book with this ISBN already exists", bookId = existing.Id });
+            return Conflict(new BookConflictDto { Message = "Book with this ISBN already exists", BookId = existing.Id });
         }
 
         var book = new Book
@@ -154,14 +171,19 @@ public class BooksController : BaseController
 
         _logger.LogInformation("Book created: {Id} - {Title}", book.Id, book.Title);
 
-        return CreatedAtAction(nameof(Get), new { id = book.Id }, new { book.Id, book.Isbn, book.Title });
+        return CreatedAtAction(nameof(Get), new { id = book.Id }, new BookCreateResultDto
+        {
+            Id = book.Id,
+            Isbn = book.Isbn,
+            Title = book.Title
+        });
     }
 
     /// <summary>
     /// Open Libraryから書籍情報を取得して登録
     /// </summary>
     [HttpPost("register-from-openlibrary/{isbn}")]
-    public async Task<IActionResult> RegisterFromOpenLibrary(string isbn)
+    public async Task<ActionResult<BookCreateResultDto>> RegisterFromOpenLibrary(string isbn)
     {
         // 既存のISBNチェック
         var existing = await _dbContext.Books
@@ -169,14 +191,14 @@ public class BooksController : BaseController
 
         if (existing != null)
         {
-            return Conflict(new { message = "Book with this ISBN already exists", bookId = existing.Id });
+            return Conflict(new BookConflictDto { Message = "Book with this ISBN already exists", BookId = existing.Id });
         }
 
         var bookData = await _openLibraryService.GetBookByIsbnAsync(isbn);
 
         if (bookData == null)
         {
-            return NotFound(new { message = "Book not found in Open Library" });
+            return NotFound(new MessageResponse("Book not found in Open Library"));
         }
 
         var book = new Book
@@ -198,20 +220,25 @@ public class BooksController : BaseController
 
         _logger.LogInformation("Book registered from Open Library: {Id} - {Title}", book.Id, book.Title);
 
-        return CreatedAtAction(nameof(Get), new { id = book.Id }, new { book.Id, book.Isbn, book.Title });
+        return CreatedAtAction(nameof(Get), new { id = book.Id }, new BookCreateResultDto
+        {
+            Id = book.Id,
+            Isbn = book.Isbn,
+            Title = book.Title
+        });
     }
 
     /// <summary>
     /// 書籍を更新
     /// </summary>
     [HttpPut("{id}")]
-    public async Task<IActionResult> Update(Guid id, [FromBody] UpdateBookRequest request)
+    public async Task<ActionResult<MessageResponse>> Update(Guid id, [FromBody] UpdateBookRequest request)
     {
         var book = await _dbContext.Books.FindAsync(id);
 
         if (book == null)
         {
-            return NotFound(new { message = "Book not found" });
+            return NotFound(new MessageResponse("Book not found"));
         }
 
         if (!string.IsNullOrEmpty(request.Title))
@@ -239,14 +266,14 @@ public class BooksController : BaseController
 
         await _dbContext.SaveChangesAsync();
 
-        return Ok(new { message = "Book updated successfully" });
+        return Ok(new MessageResponse("Book updated successfully"));
     }
 
     /// <summary>
     /// 書籍を削除
     /// </summary>
     [HttpDelete("{id}")]
-    public async Task<IActionResult> Delete(Guid id)
+    public async Task<ActionResult<MessageResponse>> Delete(Guid id)
     {
         var book = await _dbContext.Books
             .Include(b => b.Copies)
@@ -254,18 +281,18 @@ public class BooksController : BaseController
 
         if (book == null)
         {
-            return NotFound(new { message = "Book not found" });
+            return NotFound(new MessageResponse("Book not found"));
         }
 
         if (book.Copies?.Any() == true)
         {
-            return BadRequest(new { message = "Cannot delete book with copies" });
+            return BadRequest(new MessageResponse("Cannot delete book with copies"));
         }
 
         _dbContext.Books.Remove(book);
         await _dbContext.SaveChangesAsync();
 
-        return Ok(new { message = "Book deleted successfully" });
+        return Ok(new MessageResponse("Book deleted successfully"));
     }
 }
 

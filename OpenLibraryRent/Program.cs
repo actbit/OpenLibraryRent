@@ -6,8 +6,10 @@ using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
+using Microsoft.IdentityModel.Protocols.OpenIdConnect;
 using OpenLibraryRent.Authentication;
 using OpenLibraryRent.Constants;
+using OpenLibraryRent.Dtos;
 using OpenLibraryRent.Extensions;
 using OpenLibraryRent.Middleware;
 using OpenLibraryRent.Models;
@@ -31,15 +33,10 @@ public class Program
             .PersistKeysToFileSystem(new DirectoryInfo(keysDir))
             .SetApplicationName("OpenLibraryRent");
 
-        // PostgreSQL接続文字列
-        var connectionString = builder.Configuration.GetConnectionString("DefaultConnection")
-            ?? builder.Configuration.GetConnectionString("Database")
-            ?? throw new InvalidOperationException("Database connection string not configured");
-
-        // DbContext
-        builder.Services.AddDbContext<ApplicationDbContext>((sp, options) =>
+        // DbContext (Aspire統合を使用 - 接続文字列はAspireから自動注入)
+        builder.AddNpgsqlDbContext<ApplicationDbContext>("openlibraryrent-db", configure =>
         {
-            options.UseNpgsql(connectionString);
+            configure.DisableRetry = false;
         });
 
         // Identity
@@ -166,21 +163,22 @@ public class Program
                     }
                 };
             })
-            .AddOpenIdConnectConfiguration(builder.Configuration, builder.Environment)
-            // テナント作成用のMicrosoft OAuth
-            .AddMicrosoftAccount("Microsoft", options =>
-            {
-                var clientId = builder.Configuration["Authentication:Microsoft:ClientId"];
-                var clientSecret = builder.Configuration["Authentication:Microsoft:ClientSecret"];
+            .AddOpenIdConnectConfiguration(builder.Configuration, builder.Environment);
 
-                if (!string.IsNullOrEmpty(clientId) && !string.IsNullOrEmpty(clientSecret))
+        // テナント作成用のMicrosoft OAuth（設定されている場合のみ登録）
+        var microsoftClientId = builder.Configuration["Authentication:Microsoft:ClientId"];
+        var microsoftClientSecret = builder.Configuration["Authentication:Microsoft:ClientSecret"];
+        if (!string.IsNullOrEmpty(microsoftClientId) && !string.IsNullOrEmpty(microsoftClientSecret))
+        {
+            builder.Services.AddAuthentication()
+                .AddMicrosoftAccount("Microsoft", options =>
                 {
-                    options.ClientId = clientId;
-                    options.ClientSecret = clientSecret;
+                    options.ClientId = microsoftClientId;
+                    options.ClientSecret = microsoftClientSecret;
                     options.CallbackPath = "/auth/microsoft-callback";
                     options.SaveTokens = false;
-                }
-            });
+                });
+        }
 
         builder.Services.AddAuthorization(options =>
         {
@@ -216,6 +214,68 @@ public class Program
                 "Please set the 'Encryption:Key' configuration value or the 'ENCRYPTION_KEY' environment variable.");
         }
 
+        // 暗号化サービスのインスタンス（ConfigurePerTenantで使用）
+        var masterEncryptionForOidc = new EncryptionService(
+            masterEncryptionKey ?? string.Empty,
+            Microsoft.Extensions.Logging.Abstractions.NullLogger.Instance);
+
+        // テナントごとのOIDC設定
+        builder.Services.ConfigurePerTenant<OpenIdConnectOptions, ApplicationTenantInfo>(
+            AuthenticationConstants.OidcSchemeName,
+            (options, tenantInfo) =>
+            {
+                var tenantDetail = tenantInfo.Detail;
+                if (tenantDetail != null &&
+                    !string.IsNullOrEmpty(tenantDetail.OpenIdConnectAuthority) &&
+                    !string.IsNullOrEmpty(tenantDetail.OpenIdConnectClientId))
+                {
+                    if (!Uri.TryCreate(tenantDetail.OpenIdConnectAuthority, UriKind.Absolute, out var authorityUri) ||
+                        (authorityUri.Scheme != Uri.UriSchemeHttps && !builder.Environment.IsDevelopment()))
+                    {
+                        return; // このテナント設定をスキップ
+                    }
+
+                    options.Authority = tenantDetail.OpenIdConnectAuthority;
+                    options.ClientId = tenantDetail.OpenIdConnectClientId;
+
+                    options.Configuration = new OpenIdConnectConfiguration
+                    {
+                        AuthorizationEndpoint = tenantDetail.OpenIdConnectAuthorizationEndpoint,
+                        TokenEndpoint = tenantDetail.OpenIdConnectTokenEndpoint,
+                        JwksUri = tenantDetail.OpenIdConnectJwksUri,
+                        EndSessionEndpoint = tenantDetail.OpenIdConnectEndSessionEndpoint,
+                        Issuer = tenantDetail.OpenIdConnectAuthority
+                    };
+
+                    options.TokenValidationParameters.ValidIssuer = tenantDetail.OpenIdConnectAuthority;
+                    options.TokenValidationParameters.ValidateIssuer = true;
+                    options.TokenValidationParameters.ValidAudience = tenantDetail.OpenIdConnectClientId;
+                    options.TokenValidationParameters.ValidateAudience = true;
+
+                    // ClientSecretの復号化
+                    if (!string.IsNullOrEmpty(tenantDetail.TenantEncryptionKey) &&
+                        !string.IsNullOrEmpty(tenantDetail.OpenIdConnectClientSecret))
+                    {
+                        try
+                        {
+                            var decryptedSecret = masterEncryptionForOidc.DecryptWithTenantKey(
+                                tenantDetail.TenantEncryptionKey,
+                                tenantDetail.OpenIdConnectClientSecret);
+
+                            if (!string.IsNullOrEmpty(decryptedSecret))
+                            {
+                                options.ClientSecret = decryptedSecret;
+                            }
+                        }
+                        catch (Exception)
+                        {
+                            // 復号化に失敗した場合はスキップ
+                        }
+                    }
+                }
+                // OIDC設定がない場合はデフォルト値（placeholder-client-id）を維持
+            });
+
         // サービス登録
         builder.Services.AddSingleton<EncryptionService>();
         builder.Services.AddScoped<UserSyncService>();
@@ -248,10 +308,10 @@ public class Program
                                 .ToArray()
                         );
 
-                    return new BadRequestObjectResult(new
+                    return new BadRequestObjectResult(new ValidationErrorResponse
                     {
-                        message = "Invalid request",
-                        errors
+                        Message = "Invalid request",
+                        Errors = errors
                     });
                 };
             });
@@ -263,25 +323,27 @@ public class Program
         });
 
         // CORS
+        // Aspire環境（OTEL_EXPORTER_OTLP_ENDPOINTが設定されている）または開発環境では開発用CORSを使用
+        var isAspireEnvironment = !string.IsNullOrWhiteSpace(builder.Configuration["OTEL_EXPORTER_OTLP_ENDPOINT"]);
+        var isDevelopment = builder.Environment.IsDevelopment() || isAspireEnvironment;
+
         builder.Services.AddCors(options =>
         {
-            options.AddPolicy("development", policy =>
+            if (isDevelopment)
             {
-                var configuredOrigins = builder.Configuration.GetSection("Cors:DevelopmentOrigins").Get<string[]>() ?? [];
-                if (configuredOrigins.Length == 0)
+                // 開発時: 全許可
+                options.AddPolicy("default", policy =>
                 {
-                    configuredOrigins = ["http://localhost:5173", "http://localhost:5000", "http://localhost:5001"];
-                }
-
-                policy
-                    .WithOrigins(configuredOrigins)
-                    .WithMethods("GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH")
-                    .AllowAnyHeader()
-                    .AllowCredentials();
-            });
-
-            options.AddPolicy("production", policy =>
+                    policy
+                        .SetIsOriginAllowed(_ => true)
+                        .AllowAnyMethod()
+                        .AllowAnyHeader()
+                        .AllowCredentials();
+                });
+            }
+            else
             {
+                // 本番時: 環境変数で固定
                 var configuredOrigins = builder.Configuration.GetSection("Cors:AllowedOrigins").Get<string[]>() ?? [];
                 if (configuredOrigins.Length == 0)
                 {
@@ -289,16 +351,22 @@ public class Program
                         "CORS:AllowedOrigins is not configured for production.");
                 }
 
-                policy
-                    .WithOrigins(configuredOrigins)
-                    .WithMethods("GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH")
-                    .WithHeaders("Content-Type", "Authorization")
-                    .AllowCredentials();
-            });
+                options.AddPolicy("default", policy =>
+                {
+                    policy
+                        .WithOrigins(configuredOrigins)
+                        .AllowAnyMethod()
+                        .AllowAnyHeader()
+                        .AllowCredentials();
+                });
+            }
         });
 
-        // OpenAPI
-        builder.Services.AddOpenApi();
+        // OpenAPI (開発時のみ)
+        if (isDevelopment)
+        {
+            builder.Services.AddOpenApi();
+        }
 
         var app = builder.Build();
 
@@ -337,7 +405,7 @@ public class Program
 
         app.MapDefaultEndpoints();
 
-        if (app.Environment.IsDevelopment())
+        if (isDevelopment)
         {
             app.MapOpenApi();
             app.UseSwaggerUi(options =>
@@ -349,14 +417,39 @@ public class Program
         app.UseHttpsRedirection();
         app.UseRouting();
 
-        app.UseMiddleware<InvalidCookieCleanupMiddleware>();
-        app.UseMultiTenant();
+        // 認証・MultiTenantを必要とするパスのみに適用
+        app.UseWhen(context =>
+        {
+            var path = context.Request.Path.Value ?? string.Empty;
 
-        var corsPolicy = app.Environment.IsDevelopment() ? "development" : "production";
-        app.UseCors(corsPolicy);
+            // APIパスまたはテナント付きパスのみ認証・MultiTenantを適用
+            // rootページ、静的ファイル、Swagger等はスキップ
+            if (path.StartsWith("/openapi", StringComparison.OrdinalIgnoreCase) ||
+                path.StartsWith("/swagger", StringComparison.OrdinalIgnoreCase) ||
+                path.StartsWith("/health", StringComparison.OrdinalIgnoreCase) ||
+                path.StartsWith("/alive", StringComparison.OrdinalIgnoreCase) ||
+                path.StartsWith("/_app", StringComparison.OrdinalIgnoreCase) ||
+                path.StartsWith("/favicon", StringComparison.OrdinalIgnoreCase))
+            {
+                return false;
+            }
 
-        app.UseAuthentication();
-        app.UseAuthorization();
+            // ルートパス（/）はスキップ
+            if (path == "/" || string.IsNullOrEmpty(path.Trim('/')))
+            {
+                return false;
+            }
+
+            return true;
+        }, appBuilder =>
+        {
+            appBuilder.UseMiddleware<InvalidCookieCleanupMiddleware>();
+            appBuilder.UseMultiTenant();
+            appBuilder.UseAuthentication();
+            appBuilder.UseAuthorization();
+        });
+
+        app.UseCors("default");
 
         app.MapControllers();
 
