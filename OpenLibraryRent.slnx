@@ -1,5 +1,6 @@
 <Solution>
   <Project Path="OpenLibraryRent.AppHost/OpenLibraryRent.AppHost.csproj" />
   <Project Path="OpenLibraryRent.ServiceDefaults/OpenLibraryRent.ServiceDefaults.csproj" />
+  <Project Path="OpenLibraryRent.Tests/OpenLibraryRent.Tests.csproj" />
   <Project Path="OpenLibraryRent/OpenLibraryRent.csproj" />
 </Solution>
