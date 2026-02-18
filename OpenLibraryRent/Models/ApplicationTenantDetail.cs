@@ -65,6 +65,23 @@ public class ApplicationTenantDetail
     /// 延滞通知を有効にするかどうか
     /// </summary>
     public bool EnableOverdueNotification { get; set; } = true;
+
+    /// <summary>
+    /// メールアドレスによるログイン制限を有効にするかどうか
+    /// </summary>
+    public bool RestrictEmailLogin { get; set; } = false;
+
+    /// <summary>
+    /// 許可するメールドメイン（カンマ区切り、例: "company.com,example.org"）
+    /// </summary>
+    [StringLength(1000)]
+    public string? AllowedEmailDomains { get; set; }
+
+    /// <summary>
+    /// 許可するメールアドレス（カンマ区切り）
+    /// </summary>
+    [StringLength(2000)]
+    public string? AllowedEmails { get; set; }
 }
 
 public static class ApplicationTenantDetailExtensions
@@ -108,5 +125,53 @@ public static class ApplicationTenantDetailExtensions
     public static bool CanAssignRolesToUsers(this ApplicationTenantDetail? detail)
     {
         return !detail.HasOidcRoleSync();
+    }
+
+    /// <summary>
+    /// 指定されたメールアドレスがログイン許可されているかどうかを判定
+    /// </summary>
+    public static bool IsEmailAllowed(this ApplicationTenantDetail? detail, string? email)
+    {
+        if (detail == null || !detail.RestrictEmailLogin)
+        {
+            // 制限が無効な場合は全て許可
+            return true;
+        }
+
+        if (string.IsNullOrWhiteSpace(email))
+        {
+            return false;
+        }
+
+        var normalizedEmail = email.Trim().ToLowerInvariant();
+
+        // 許可されたメールアドレスリストをチェック
+        if (!string.IsNullOrWhiteSpace(detail.AllowedEmails))
+        {
+            var allowedEmails = detail.AllowedEmails
+                .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+                .Select(e => e.ToLowerInvariant());
+
+            if (allowedEmails.Contains(normalizedEmail))
+            {
+                return true;
+            }
+        }
+
+        // 許可されたドメインリストをチェック
+        if (!string.IsNullOrWhiteSpace(detail.AllowedEmailDomains))
+        {
+            var allowedDomains = detail.AllowedEmailDomains
+                .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+                .Select(d => d.ToLowerInvariant().TrimStart('@'));
+
+            var emailDomain = normalizedEmail.Split('@').LastOrDefault();
+            if (!string.IsNullOrEmpty(emailDomain) && allowedDomains.Contains(emailDomain))
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 }
