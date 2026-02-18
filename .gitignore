@@ -47,7 +47,7 @@ node_modules/
 *.tsbuildinfo
 
 # SvelteKit build output (generated at build time)
-OpenLibraryRent/OpenLibraryRent/wwwroot/
+OpenLibraryRent/wwwroot/
 
 # DataProtection keys
 .keys/
