@@ -1,8 +1,12 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 
-	let onScan: (isbn: string) => void = () => {};
-	let onError: (error: string) => void = () => {};
+	interface Props {
+		onScan?: (isbn: string) => void;
+		onError?: (error: string) => void;
+	}
+
+	let { onScan = () => {}, onError = () => {} }: Props = $props();
 
 	let videoElement: HTMLVideoElement;
 	let isScanning = $state(false);

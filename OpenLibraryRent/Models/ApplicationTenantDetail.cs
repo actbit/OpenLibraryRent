@@ -72,6 +72,11 @@ public class ApplicationTenantDetail
     public bool RestrictEmailLogin { get; set; } = false;
 
     /// <summary>
+    /// ユーザー登録モード
+    /// </summary>
+    public UserRegistrationMode RegistrationMode { get; set; } = UserRegistrationMode.Public;
+
+    /// <summary>
     /// 許可するメールドメイン（カンマ区切り、例: "company.com,example.org"）
     /// </summary>
     [StringLength(1000)]
@@ -82,6 +87,30 @@ public class ApplicationTenantDetail
     /// </summary>
     [StringLength(2000)]
     public string? AllowedEmails { get; set; }
+
+    /// <summary>
+    /// ユーザー登録に承認が必要かどうか
+    /// </summary>
+    public bool RequireApproval { get; set; } = false;
+
+    /// <summary>
+    /// 申請フォームのフィールド定義（JSON形式）
+    /// 例: [{"name": "department", "label": "部署名", "type": "text", "required": true}]
+    /// </summary>
+    [StringLength(4000)]
+    public string? ApprovalFormFields { get; set; }
+
+    /// <summary>
+    /// 申請時の説明文
+    /// </summary>
+    [StringLength(1000)]
+    public string? ApprovalInstructions { get; set; }
+
+    /// <summary>
+    /// 承認時にデフォルトで付与するロール（カンマ区切り）
+    /// </summary>
+    [StringLength(500)]
+    public string? DefaultApprovedRoles { get; set; }
 }
 
 public static class ApplicationTenantDetailExtensions
@@ -174,4 +203,25 @@ public static class ApplicationTenantDetailExtensions
 
         return false;
     }
+}
+
+/// <summary>
+/// ユーザー登録モード
+/// </summary>
+public enum UserRegistrationMode
+{
+    /// <summary>
+    /// パブリックモード - 誰でもログイン可能
+    /// </summary>
+    Public = 0,
+
+    /// <summary>
+    /// プライベートモード - ホワイトリストのメール/ドメインのみ
+    /// </summary>
+    Private = 1,
+
+    /// <summary>
+    /// 承認制 - 誰でも申請可能、管理者の承認が必要
+    /// </summary>
+    Approval = 2
 }

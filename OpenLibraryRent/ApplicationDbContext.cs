@@ -36,6 +36,9 @@ public class ApplicationDbContext : MultiTenantIdentityDbContext<ApplicationUser
     // 権限
     public DbSet<RolePermission> RolePermissions => Set<RolePermission>();
 
+    // ユーザー承認リクエスト
+    public DbSet<UserApprovalRequest> UserApprovalRequests => Set<UserApprovalRequest>();
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         base.OnModelCreating(modelBuilder);
@@ -126,6 +129,15 @@ public class ApplicationDbContext : MultiTenantIdentityDbContext<ApplicationUser
                 .WithMany()
                 .HasForeignKey(h => h.BookId)
                 .OnDelete(DeleteBehavior.Restrict);
+        });
+
+        // ユーザー承認リクエスト設定
+        modelBuilder.Entity<UserApprovalRequest>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            entity.HasIndex(e => new { e.TenantId, e.Email });
+            entity.HasIndex(e => new { e.TenantId, e.Status });
+            entity.HasIndex(e => new { e.TenantId, e.Sub });
         });
     }
 
