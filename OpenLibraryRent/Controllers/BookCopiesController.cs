@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using OpenLibraryRent.Dtos;
 using OpenLibraryRent.Models;
 
 namespace OpenLibraryRent.Controllers;
@@ -25,25 +26,25 @@ public class BookCopiesController : BaseController
     /// 書籍の個体一覧を取得
     /// </summary>
     [HttpGet("book/{bookId}")]
-    public async Task<IActionResult> ListByBook(Guid bookId)
+    public async Task<ActionResult<List<BookCopyListItemDto>>> ListByBook(Guid bookId)
     {
         var copies = await _dbContext.BookCopies
             .Include(c => c.CurrentRental)
                 .ThenInclude(r => r!.User)
             .Where(c => c.BookId == bookId)
-            .Select(c => new
+            .Select(c => new BookCopyListItemDto
             {
-                c.Id,
-                c.InventoryCode,
-                c.Status,
-                c.Notes,
-                CurrentRental = c.CurrentRental != null ? new
+                Id = c.Id,
+                InventoryCode = c.InventoryCode,
+                Status = c.Status.ToString(),
+                Notes = c.Notes,
+                CurrentRental = c.CurrentRental != null ? new CurrentRentalDto
                 {
-                    c.CurrentRental.Id,
-                    c.CurrentRental.UserId,
+                    Id = c.CurrentRental.Id,
+                    UserId = c.CurrentRental.UserId,
                     UserName = c.CurrentRental.User!.DisplayName ?? c.CurrentRental.User!.UserName,
-                    c.CurrentRental.DueDate,
-                    c.CurrentRental.BorrowedAt
+                    DueDate = c.CurrentRental.DueDate,
+                    BorrowedAt = c.CurrentRental.BorrowedAt
                 } : null
             })
             .ToListAsync();
@@ -55,13 +56,13 @@ public class BookCopiesController : BaseController
     /// 書籍個体を追加
     /// </summary>
     [HttpPost]
-    public async Task<IActionResult> Create([FromBody] CreateBookCopyRequest request)
+    public async Task<ActionResult<BookCopyCreateResultDto>> Create([FromBody] CreateBookCopyRequest request)
     {
         var book = await _dbContext.Books.FindAsync(request.BookId);
 
         if (book == null)
         {
-            return NotFound(new { message = "Book not found" });
+            return NotFound(new MessageResponse("Book not found"));
         }
 
         // 管理番号の重複チェック
@@ -70,7 +71,7 @@ public class BookCopiesController : BaseController
 
         if (existingCode != null)
         {
-            return Conflict(new { message = "Inventory code already exists" });
+            return Conflict(new MessageResponse("Inventory code already exists"));
         }
 
         var copy = new BookCopy
@@ -91,14 +92,19 @@ public class BookCopiesController : BaseController
 
         _logger.LogInformation("Book copy created: {Id} - {InventoryCode}", copy.Id, copy.InventoryCode);
 
-        return CreatedAtAction(nameof(Get), new { id = copy.Id }, new { copy.Id, copy.InventoryCode, copy.Status });
+        return CreatedAtAction(nameof(Get), new { id = copy.Id }, new BookCopyCreateResultDto
+        {
+            Id = copy.Id,
+            InventoryCode = copy.InventoryCode,
+            Status = copy.Status.ToString()
+        });
     }
 
     /// <summary>
     /// 書籍個体詳細を取得
     /// </summary>
     [HttpGet("{id}")]
-    public async Task<IActionResult> Get(Guid id)
+    public async Task<ActionResult<BookCopyDetailDto>> Get(Guid id)
     {
         var copy = await _dbContext.BookCopies
             .Include(c => c.Book)
@@ -108,28 +114,28 @@ public class BookCopiesController : BaseController
 
         if (copy == null)
         {
-            return NotFound(new { message = "Book copy not found" });
+            return NotFound(new MessageResponse("Book copy not found"));
         }
 
-        return Ok(new
+        return Ok(new BookCopyDetailDto
         {
-            copy.Id,
-            copy.InventoryCode,
-            copy.Status,
-            copy.Notes,
-            Book = new
+            Id = copy.Id,
+            InventoryCode = copy.InventoryCode,
+            Status = copy.Status.ToString(),
+            Notes = copy.Notes,
+            Book = new BookSummaryDto
             {
-                copy.Book!.Id,
-                copy.Book.Isbn,
-                copy.Book.Title
+                Id = copy.Book!.Id,
+                Title = copy.Book.Title,
+                Isbn = copy.Book.Isbn
             },
-            CurrentRental = copy.CurrentRental != null ? new
+            CurrentRental = copy.CurrentRental != null ? new CurrentRentalDto
             {
-                copy.CurrentRental.Id,
-                copy.CurrentRental.UserId,
+                Id = copy.CurrentRental.Id,
+                UserId = copy.CurrentRental.UserId,
                 UserName = copy.CurrentRental.User!.DisplayName ?? copy.CurrentRental.User!.UserName,
-                copy.CurrentRental.DueDate,
-                copy.CurrentRental.BorrowedAt
+                DueDate = copy.CurrentRental.DueDate,
+                BorrowedAt = copy.CurrentRental.BorrowedAt
             } : null
         });
     }
@@ -138,7 +144,7 @@ public class BookCopiesController : BaseController
     /// 書籍個体の状態を更新
     /// </summary>
     [HttpPut("{id}/status")]
-    public async Task<IActionResult> UpdateStatus(Guid id, [FromBody] UpdateBookCopyStatusRequest request)
+    public async Task<ActionResult<MessageResponse>> UpdateStatus(Guid id, [FromBody] UpdateBookCopyStatusRequest request)
     {
         var copy = await _dbContext.BookCopies
             .Include(c => c.Book)
@@ -146,7 +152,7 @@ public class BookCopiesController : BaseController
 
         if (copy == null)
         {
-            return NotFound(new { message = "Book copy not found" });
+            return NotFound(new MessageResponse("Book copy not found"));
         }
 
         var oldStatus = copy.Status;
@@ -168,14 +174,14 @@ public class BookCopiesController : BaseController
 
         _logger.LogInformation("Book copy status updated: {Id} - {Status}", copy.Id, copy.Status);
 
-        return Ok(new { message = "Status updated successfully" });
+        return Ok(new MessageResponse("Status updated successfully"));
     }
 
     /// <summary>
     /// 書籍個体を削除
     /// </summary>
     [HttpDelete("{id}")]
-    public async Task<IActionResult> Delete(Guid id)
+    public async Task<ActionResult<MessageResponse>> Delete(Guid id)
     {
         var copy = await _dbContext.BookCopies
             .Include(c => c.Book)
@@ -183,12 +189,12 @@ public class BookCopiesController : BaseController
 
         if (copy == null)
         {
-            return NotFound(new { message = "Book copy not found" });
+            return NotFound(new MessageResponse("Book copy not found"));
         }
 
         if (copy.Status == BookCopyStatus.Borrowed)
         {
-            return BadRequest(new { message = "Cannot delete a borrowed copy" });
+            return BadRequest(new MessageResponse("Cannot delete a borrowed copy"));
         }
 
         // 冊数を更新
@@ -201,7 +207,7 @@ public class BookCopiesController : BaseController
         _dbContext.BookCopies.Remove(copy);
         await _dbContext.SaveChangesAsync();
 
-        return Ok(new { message = "Book copy deleted successfully" });
+        return Ok(new MessageResponse("Book copy deleted successfully"));
     }
 }
 

@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using OpenLibraryRent.Dtos;
 
 namespace OpenLibraryRent.Controllers;
 
@@ -15,7 +16,7 @@ public abstract class BaseController : ControllerBase
         var entity = await dbSet.FindAsync(new object[] { id }, cancellationToken);
         if (entity == null)
         {
-            return (null, NotFound(new { message = $"{entityName} not found" }));
+            return (null, NotFound(new MessageResponse($"{entityName} not found")));
         }
         return (entity, null);
     }
@@ -34,13 +35,13 @@ public abstract class BaseController : ControllerBase
         var entity1 = await dbSet1.FindAsync(new object[] { id1 }, cancellationToken);
         if (entity1 == null)
         {
-            return (null, null, NotFound(new { message = $"{entityName1} not found" }));
+            return (null, null, NotFound(new MessageResponse($"{entityName1} not found")));
         }
 
         var entity2 = await dbSet2.FindAsync(new object[] { id2 }, cancellationToken);
         if (entity2 == null)
         {
-            return (null, null, NotFound(new { message = $"{entityName2} not found" }));
+            return (null, null, NotFound(new MessageResponse($"{entityName2} not found")));
         }
 
         return (entity1, entity2, null);
@@ -59,7 +60,7 @@ public abstract class BaseController : ControllerBase
 
         if (childParentId != parentId)
         {
-            return BadRequest(new { message = $"{childName} does not belong to the {parentName}" });
+            return BadRequest(new MessageResponse($"{childName} does not belong to the {parentName}"));
         }
 
         return null;
@@ -74,7 +75,7 @@ public abstract class BaseController : ControllerBase
         var exists = await query.AnyAsync(cancellationToken);
         if (exists)
         {
-            return Conflict(new { message = $"{entityName} already exists" });
+            return Conflict(new MessageResponse($"{entityName} already exists"));
         }
         return null;
     }
