@@ -166,7 +166,21 @@ public class Program
                     }
                 };
             })
-            .AddOpenIdConnectConfiguration(builder.Configuration, builder.Environment);
+            .AddOpenIdConnectConfiguration(builder.Configuration, builder.Environment)
+            // テナント作成用のMicrosoft OAuth
+            .AddMicrosoftAccount("Microsoft", options =>
+            {
+                var clientId = builder.Configuration["Authentication:Microsoft:ClientId"];
+                var clientSecret = builder.Configuration["Authentication:Microsoft:ClientSecret"];
+
+                if (!string.IsNullOrEmpty(clientId) && !string.IsNullOrEmpty(clientSecret))
+                {
+                    options.ClientId = clientId;
+                    options.ClientSecret = clientSecret;
+                    options.CallbackPath = "/auth/microsoft-callback";
+                    options.SaveTokens = false;
+                }
+            });
 
         builder.Services.AddAuthorization(options =>
         {
@@ -207,6 +221,7 @@ public class Program
         builder.Services.AddScoped<UserSyncService>();
         builder.Services.AddScoped<TenantManagementService>();
         builder.Services.AddScoped<RentalService>();
+        builder.Services.AddScoped<SystemInitializer>();
 
         // HttpClient
         builder.Services.AddHttpClient<OpenLibraryService>();
@@ -306,6 +321,17 @@ public class Program
             {
                 logger.LogError(ex, "Error during database migration");
                 throw;
+            }
+
+            // システム初期化
+            try
+            {
+                var systemInitializer = scope.ServiceProvider.GetRequiredService<SystemInitializer>();
+                await systemInitializer.InitializeAsync();
+            }
+            catch (Exception ex)
+            {
+                logger.LogError(ex, "Error during system initialization");
             }
         }
 

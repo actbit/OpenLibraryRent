@@ -1,12 +1,12 @@
 <script lang="ts">
-	import '../app.css';
+	import '../../app.css';
 	import { onMount } from 'svelte';
 	import { page } from '$app/stores';
 	import { auth } from '$lib/stores/auth';
 
 	let { children } = $props();
 
-	$: tenant = $page.params.tenant || '';
+	const tenant = $derived($page.params.tenant || '');
 
 	onMount(() => {
 		if (tenant) {
@@ -26,6 +26,7 @@
 					<a href="/{tenant}/rentals">貸出状況</a>
 					{#if $auth.user.roles?.includes('Admin') || $auth.user.roles?.includes('Librarian')}
 						<a href="/{tenant}/rentals/overdue">延滞一覧</a>
+						<a href="/{tenant}/users">ユーザー管理</a>
 					{/if}
 					<span class="user-name">{$auth.user.name || $auth.user.email}</span>
 					<button onclick={() => auth.logout(tenant)}>ログアウト</button>

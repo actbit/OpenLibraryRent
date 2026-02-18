@@ -35,6 +35,12 @@ public class ApplicationTenantInfo : TenantInfo
 
     public ApplicationTenantDetail? Detail { get; set; }
 
+    /// <summary>
+    /// テナント作成者のメールアドレス（作成数制限用）
+    /// </summary>
+    [StringLength(255)]
+    public string? CreatorEmail { get; set; }
+
     // Finbuckle.MultiTenant WithPerTenantAuthentication() 用のラッパープロパティ
     public string? OpenIdConnectAuthority => Detail?.OpenIdConnectAuthority;
     public string? OpenIdConnectClientId => Detail?.OpenIdConnectClientId;
